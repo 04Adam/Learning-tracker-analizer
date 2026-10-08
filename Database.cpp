@@ -23,20 +23,22 @@ static bool seedSubjects() {
     // Odcienie dobrane tak, żeby dało się je rozróżnić na ciemnym tle,
     // także przy zaburzeniach widzenia barw (czerwony kontra zielony).
     const struct { const char* name; const char* color; } subjects[] = {
-        {"Algorytmy", "#d93f4c"},
-        {"Python",    "#c99a16"},
-        {"C++/CUDA",  "#2fb37a"},
-        {"Go",        "#3b8fe6"},
+        {"Algorithms", "#d93f4c"},
+        {"Python",     "#c99a16"},
+        {"C++/CUDA",   "#2fb37a"},
+        {"Go",         "#3b8fe6"},
     };
 
     QSqlQuery q;
+    // Przedmiot z czasów polskiego interfejsu zachowuje swoje sesje pod nową nazwą.
+    q.exec("UPDATE OR IGNORE subjects SET name = 'Algorithms' WHERE name = 'Algorytmy'");
     q.prepare("INSERT INTO subjects(name, color) VALUES(?, ?) "
               "ON CONFLICT(name) DO UPDATE SET color = excluded.color");
     for (const auto& s : subjects) {
         q.addBindValue(s.name);
         q.addBindValue(s.color);
         if (!q.exec()) {
-            qCritical() << "Błąd inicjalizacji bazy:" << q.lastError().text();
+            qCritical() << "Database initialization error:" << q.lastError().text();
             return false;
         }
     }
@@ -50,10 +52,10 @@ bool openDatabase() {
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
     db.setDatabaseName(dir + "/study.db");
     if (!db.open()) {
-        qCritical() << "Nie można otworzyć bazy:" << db.lastError().text();
+        qCritical() << "Cannot open database:" << db.lastError().text();
         return false;
     }
-    qInfo() << "Baza danych:" << db.databaseName();
+    qInfo() << "Database:" << db.databaseName();
 
     const char* statements[] = {
         "PRAGMA foreign_keys = ON",
@@ -74,7 +76,7 @@ bool openDatabase() {
     QSqlQuery q;
     for (const char* sql : statements) {
         if (!q.exec(sql)) {
-            qCritical() << "Błąd inicjalizacji bazy:" << q.lastError().text();
+            qCritical() << "Database initialization error:" << q.lastError().text();
             return false;
         }
     }
@@ -82,7 +84,7 @@ bool openDatabase() {
     // Bazy utworzone przed dodaniem kolorów nie mają tej kolumny.
     if (!hasColumn("subjects", "color")
         && !q.exec("ALTER TABLE subjects ADD COLUMN color TEXT NOT NULL DEFAULT '#9da0a8'")) {
-        qCritical() << "Błąd migracji bazy:" << q.lastError().text();
+        qCritical() << "Database migration error:" << q.lastError().text();
         return false;
     }
 

@@ -49,7 +49,7 @@ TrackerWindow::TrackerWindow() {
 
     expandBtn->setFixedWidth(30);
     quitBtn->setFixedWidth(30);
-    quitBtn->setToolTip("Zakończ");
+    quitBtn->setToolTip("Quit");
 
     auto* bar = new QHBoxLayout;
     bar->addWidget(subjectLabel);
@@ -71,12 +71,12 @@ TrackerWindow::TrackerWindow() {
     weekBtn->setProperty("section", true);
     todayBtn->setCheckable(true);
     weekBtn->setCheckable(true);
-    auto* hint = new QLabel("Kliknij ponownie: słupki ↔ przebieg w czasie", dashboard);
+    auto* hint = new QLabel("Click again: bars ↔ over time", dashboard);
     hint->setEnabled(false);
     chart = new ChartWidget(dashboard);
 
     auto* subjectColumn = new QVBoxLayout;
-    subjectColumn->addWidget(new QLabel("Czego się teraz uczysz?", dashboard));
+    subjectColumn->addWidget(new QLabel("What are you studying now?", dashboard));
     subjectColumn->addWidget(subjectList);
 
     auto* sections = new QHBoxLayout;
@@ -210,7 +210,7 @@ void TrackerWindow::refreshSubjects() {
         const SubjectTotal& s = subjects[row];
         auto* item = row < subjectList->count() ? subjectList->item(row)
                                                 : new QListWidgetItem(subjectList);
-        item->setText(QString("%1 — dziś %2").arg(s.name, formatTime(s.todaySeconds)));
+        item->setText(QString("%1 — today %2").arg(s.name, formatTime(s.todaySeconds)));
         item->setData(Qt::UserRole, s.id);
         QPixmap swatch(12, 12);
         swatch.fill(s.color);
@@ -231,15 +231,15 @@ void TrackerWindow::refreshSubjects() {
 void TrackerWindow::updateControls() {
     switch (counter.state()) {
         case Counter::State::Stopped: startPauseBtn->setText("Start"); break;
-        case Counter::State::Running: startPauseBtn->setText("Pauza"); break;
-        case Counter::State::Paused:  startPauseBtn->setText("Wznów"); break;
+        case Counter::State::Running: startPauseBtn->setText("Pause"); break;
+        case Counter::State::Paused:  startPauseBtn->setText("Resume"); break;
     }
     startPauseBtn->setEnabled(currentSubject != -1);
     stopBtn->setEnabled(counter.state() != Counter::State::Stopped);
     todayBtn->setChecked(currentSection == ChartWidget::Range::Today);
     weekBtn->setChecked(currentSection == ChartWidget::Range::Week);
     expandBtn->setText(dashboard->isHidden() ? "▼" : "▲");
-    expandBtn->setToolTip(dashboard->isHidden() ? "Rozwiń pulpit" : "Zwiń pulpit");
+    expandBtn->setToolTip(dashboard->isHidden() ? "Expand dashboard" : "Collapse dashboard");
 }
 
 void TrackerWindow::updateTime() {
