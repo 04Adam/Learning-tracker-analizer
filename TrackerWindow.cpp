@@ -4,10 +4,13 @@
 
 #include <QApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QPixmap>
 #include <QPushButton>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -22,6 +25,15 @@ static QString formatTime(qint64 seconds) {
 
 TrackerWindow::TrackerWindow() {
     setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
+    setObjectName("tracker");
+    setAttribute(Qt::WA_StyledBackground);
+    setStyleSheet(
+        "#tracker { border: 1px solid #43454a; }"
+        "QPushButton[section=true] { padding: 5px 22px; border: 1px solid #43454a;"
+        " border-radius: 4px; background: #2b2d30; }"
+        "QPushButton[section=true]:hover { background: #35373b; }"
+        "QPushButton[section=true]:checked { background: #2f65ca; border-color: #2f65ca;"
+        " color: white; }");
 
     subjectLabel  = new QLabel(this);
     timeLabel     = new QLabel(this);
@@ -50,12 +62,39 @@ TrackerWindow::TrackerWindow() {
 
     dashboard = new QWidget(this);
     subjectList = new QListWidget(dashboard);
-    subjectList->setMinimumSize(360, 220);
+    subjectList->setFixedWidth(260);
+    subjectList->setSpacing(2);
 
-    auto* dashboardLayout = new QVBoxLayout(dashboard);
-    dashboardLayout->setContentsMargins(0, 0, 0, 0);
-    dashboardLayout->addWidget(new QLabel("Czego się teraz uczysz?", dashboard));
-    dashboardLayout->addWidget(subjectList);
+    todayBtn = new QPushButton("Today", dashboard);
+    weekBtn  = new QPushButton("Week", dashboard);
+    todayBtn->setProperty("section", true);
+    weekBtn->setProperty("section", true);
+    todayBtn->setCheckable(true);
+    weekBtn->setCheckable(true);
+    auto* hint = new QLabel("Kliknij ponownie: słupki ↔ przebieg w czasie", dashboard);
+    hint->setEnabled(false);
+    chart = new ChartWidget(dashboard);
+
+    auto* subjectColumn = new QVBoxLayout;
+    subjectColumn->addWidget(new QLabel("Czego się teraz uczysz?", dashboard));
+    subjectColumn->addWidget(subjectList);
+
+    auto* sections = new QHBoxLayout;
+    sections->addWidget(todayBtn);
+    sections->addWidget(weekBtn);
+    sections->addSpacing(12);
+    sections->addWidget(hint);
+    sections->addStretch();
+
+    auto* chartColumn = new QVBoxLayout;
+    chartColumn->addLayout(sections);
+    chartColumn->addWidget(chart, 1);
+
+    auto* dashboardLayout = new QHBoxLayout(dashboard);
+    dashboardLayout->setContentsMargins(0, 8, 0, 0);
+    dashboardLayout->setSpacing(16);
+    dashboardLayout->addLayout(subjectColumn);
+    dashboardLayout->addLayout(chartColumn, 1);
     dashboard->hide();
 
     auto* layout = new QVBoxLayout(this);
@@ -68,6 +107,8 @@ TrackerWindow::TrackerWindow() {
     connect(stopBtn, &QPushButton::clicked, this, [this] { stop(); });
     connect(expandBtn, &QPushButton::clicked, this, [this] { toggleDashboard(); });
     connect(quitBtn, &QPushButton::clicked, qApp, &QApplication::quit);
+    connect(todayBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Today); });
+    connect(weekBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Week); });
     connect(subjectList, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
         if (item)
             selectSubject(item->data(Qt::UserRole).toInt());
@@ -118,14 +159,31 @@ void TrackerWindow::stop() {
 
 void TrackerWindow::toggleDashboard() {
     const QPoint topRight = frameGeometry().topRight();
-    if (dashboard->isHidden())
+    const QRect available = screen()->availableGeometry();
+
+    if (dashboard->isHidden()) {
+        dashboard->setFixedSize(qMin(1280, available.width() - 80),
+                                qMin(760, available.height() - 140));
         refreshSubjects();
+    }
     dashboard->setVisible(dashboard->isHidden());
     updateControls();
 
-    // Trzymamy prawy górny róg w miejscu, żeby okno nie wyjechało poza ekran.
+    // Trzymamy prawy górny róg w miejscu, ale nie pozwalamy wyjechać poza ekran.
     adjustSize();
-    move(topRight.x() - width() + 1, topRight.y());
+    move(qMax(available.left(), topRight.x() - width() + 1),
+         qMin(topRight.y(), qMax(available.top(), available.bottom() - height())));
+}
+
+void TrackerWindow::showSection(ChartWidget::Range section) {
+    ChartWidget::Mode& mode = section == ChartWidget::Range::Today ? todayMode : weekMode;
+    if (section == currentSection) {
+        mode = mode == ChartWidget::Mode::Totals ? ChartWidget::Mode::Cumulative
+                                                 : ChartWidget::Mode::Totals;
+    }
+    currentSection = section;
+    chart->setView(section, mode);
+    updateControls();
 }
 
 void TrackerWindow::selectSubject(int subjectId) {
@@ -154,11 +212,20 @@ void TrackerWindow::refreshSubjects() {
                                                 : new QListWidgetItem(subjectList);
         item->setText(QString("%1 — dziś %2").arg(s.name, formatTime(s.todaySeconds)));
         item->setData(Qt::UserRole, s.id);
+        QPixmap swatch(12, 12);
+        swatch.fill(s.color);
+        // Bez wariantu Selected Qt przyciemnia kolor zaznaczonego przedmiotu.
+        QIcon icon(swatch);
+        icon.addPixmap(swatch, QIcon::Selected);
+        item->setIcon(icon);
         if (s.id == currentSubject) {
             subjectList->setCurrentItem(item);
             subjectLabel->setText(s.name);
         }
     }
+
+    if (!dashboard->isHidden())
+        chart->reload();
 }
 
 void TrackerWindow::updateControls() {
@@ -169,6 +236,8 @@ void TrackerWindow::updateControls() {
     }
     startPauseBtn->setEnabled(currentSubject != -1);
     stopBtn->setEnabled(counter.state() != Counter::State::Stopped);
+    todayBtn->setChecked(currentSection == ChartWidget::Range::Today);
+    weekBtn->setChecked(currentSection == ChartWidget::Range::Week);
     expandBtn->setText(dashboard->isHidden() ? "▼" : "▲");
     expandBtn->setToolTip(dashboard->isHidden() ? "Rozwiń pulpit" : "Zwiń pulpit");
 }

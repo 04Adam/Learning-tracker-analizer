@@ -12,6 +12,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
 
 add_executable(LearningTimeAnalizer
         main.cpp
+        ChartWidget.cpp
+        ChartWidget.h
         Counter.cpp
         Counter.h
         Database.cpp
