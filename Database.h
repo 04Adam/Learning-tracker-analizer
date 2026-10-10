@@ -19,9 +19,23 @@ struct Session {
     qint64 end;
 };
 
+struct Todo {
+    int id;
+    QString text;
+    // Kolor przypisanego przedmiotu; nieprawidłowy, gdy zadanie nie ma przedmiotu.
+    QColor color;
+};
+
 bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
 // Odcinki nauki przycięte do przedziału [from, to), posortowane po czasie startu.
 QList<Session> sessionsBetween(qint64 from, qint64 to);
+
+// Zadania jeszcze nieodhaczone, w kolejności przedmiotów; te bez przedmiotu na końcu.
+QList<Todo> openTodos();
+// subjectId == -1 oznacza zadanie bez przedmiotu.
+void addTodo(const QString& text, int subjectId);
+void setTodoSubject(int id, int subjectId);
+void completeTodo(int id);
 
 #endif

@@ -3,16 +3,23 @@
 #include "Database.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScreen>
+#include <QSet>
 #include <QSignalBlocker>
+#include <QStyledItemDelegate>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -22,6 +29,48 @@ static QString formatTime(qint64 seconds) {
         .arg(seconds / 60 % 60, 2, 10, QChar('0'))
         .arg(seconds % 60, 2, 10, QChar('0'));
 }
+
+// Nieprawidłowy kolor daje pusty kwadrat, żeby teksty w liście były wyrównane.
+static QIcon swatchIcon(const QColor& color) {
+    QPixmap swatch(12, 12);
+    swatch.fill(color.isValid() ? color : Qt::transparent);
+    // Bez wariantu Selected Qt przyciemnia kolor zaznaczonego wiersza.
+    QIcon icon(swatch);
+    icon.addPixmap(swatch, QIcon::Selected);
+    return icon;
+}
+
+enum TodoRole {
+    TodoIdRole = Qt::UserRole,
+    TodoColorRole,
+    // Zadanie już rozwiązane, czeka tylko na koniec animacji znikania.
+    TodoSolvingRole,
+};
+
+// Rysuje na rozwiązywanych zadaniach pasek w kolorze przedmiotu, rosnący od lewej.
+class TodoDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    double progress = 0;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        QStyledItemDelegate::paint(painter, option, index);
+        if (!index.data(TodoSolvingRole).toBool()) return;
+
+        const QColor subjectColor = index.data(TodoColorRole).value<QColor>();
+        QRectF bar = option.rect;
+        bar.setWidth(bar.width() * progress);
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(subjectColor.isValid() ? subjectColor : QColor("#8a8d93"));
+        painter->drawRoundedRect(bar, 3, 3);
+        painter->restore();
+    }
+};
 
 TrackerWindow::TrackerWindow() {
     setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
@@ -33,7 +82,10 @@ TrackerWindow::TrackerWindow() {
         " border-radius: 4px; background: #2b2d30; }"
         "QPushButton[section=true]:hover { background: #35373b; }"
         "QPushButton[section=true]:checked { background: #2f65ca; border-color: #2f65ca;"
-        " color: white; }");
+        " color: white; }"
+        "#todoList::indicator { width: 12px; height: 12px; border: 1px solid white;"
+        " border-radius: 2px; }"
+        "#todoList::indicator:checked { background: white; }");
 
     subjectLabel  = new QLabel(this);
     timeLabel     = new QLabel(this);
@@ -65,6 +117,32 @@ TrackerWindow::TrackerWindow() {
     subjectList->setFixedWidth(260);
     subjectList->setSpacing(2);
 
+    todoInput = new QLineEdit(dashboard);
+    todoInput->setPlaceholderText("New task…");
+    todoSubject = new QComboBox(dashboard);
+    todoSubject->addItem(swatchIcon({}), "No subject", -1);
+    for (const SubjectTotal& s : subjectsWithTodayTotals())
+        todoSubject->addItem(swatchIcon(s.color), s.name, s.id);
+    auto* addTodoBtn = new QPushButton("Add", dashboard);
+    todoList = new QListWidget(dashboard);
+    todoList->setObjectName("todoList");
+    todoList->setContextMenuPolicy(Qt::CustomContextMenu);
+    todoList->setFixedWidth(260);
+    todoList->setSpacing(2);
+    todoList->setWordWrap(true);
+    // Zadań się nie zaznacza, tylko odhacza.
+    todoList->setSelectionMode(QAbstractItemView::NoSelection);
+    todoList->setFocusPolicy(Qt::NoFocus);
+    todoDelegate = new TodoDelegate(todoList);
+    todoList->setItemDelegate(todoDelegate);
+    solveBtn = new QPushButton("Solve", dashboard);
+
+    solveAnimation = new QVariantAnimation(this);
+    solveAnimation->setStartValue(0.0);
+    solveAnimation->setEndValue(1.0);
+    solveAnimation->setDuration(550);
+    solveAnimation->setEasingCurve(QEasingCurve::InOutCubic);
+
     todayBtn = new QPushButton("Today", dashboard);
     weekBtn  = new QPushButton("Week", dashboard);
     todayBtn->setProperty("section", true);
@@ -77,7 +155,18 @@ TrackerWindow::TrackerWindow() {
 
     auto* subjectColumn = new QVBoxLayout;
     subjectColumn->addWidget(new QLabel("What are you studying now?", dashboard));
-    subjectColumn->addWidget(subjectList);
+    subjectColumn->addWidget(subjectList, 1);
+
+    auto* todoEntry = new QHBoxLayout;
+    todoEntry->addWidget(todoSubject, 1);
+    todoEntry->addWidget(addTodoBtn);
+
+    subjectColumn->addSpacing(8);
+    subjectColumn->addWidget(new QLabel("To do", dashboard));
+    subjectColumn->addWidget(todoInput);
+    subjectColumn->addLayout(todoEntry);
+    subjectColumn->addWidget(todoList, 2);
+    subjectColumn->addWidget(solveBtn);
 
     auto* sections = new QHBoxLayout;
     sections->addWidget(todayBtn);
@@ -113,6 +202,17 @@ TrackerWindow::TrackerWindow() {
         if (item)
             selectSubject(item->data(Qt::UserRole).toInt());
     });
+    connect(todoInput, &QLineEdit::returnPressed, this, [this] { addTodoFromInput(); });
+    connect(addTodoBtn, &QPushButton::clicked, this, [this] { addTodoFromInput(); });
+    connect(todoList, &QListWidget::itemChanged, this, [this] { updateSolveButton(); });
+    connect(solveBtn, &QPushButton::clicked, this, [this] { solveCheckedTodos(); });
+    connect(solveAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+        todoDelegate->progress = value.toDouble();
+        todoList->viewport()->update();
+    });
+    connect(solveAnimation, &QVariantAnimation::finished, this, [this] { removeSolvedTodos(); });
+    connect(todoList, &QListWidget::customContextMenuRequested, this,
+            [this](const QPoint& pos) { showTodoMenu(pos); });
     connect(qApp, &QApplication::aboutToQuit, this, [this] { counter.stop(); });
 
     auto* tick = new QTimer(this);
@@ -127,6 +227,7 @@ TrackerWindow::TrackerWindow() {
     autosave->start(10000);
 
     refreshSubjects();
+    refreshTodos();
     if (subjectList->count() > 0)
         subjectList->setCurrentRow(0);
     updateControls();
@@ -212,12 +313,7 @@ void TrackerWindow::refreshSubjects() {
                                                 : new QListWidgetItem(subjectList);
         item->setText(QString("%1 — today %2").arg(s.name, formatTime(s.todaySeconds)));
         item->setData(Qt::UserRole, s.id);
-        QPixmap swatch(12, 12);
-        swatch.fill(s.color);
-        // Bez wariantu Selected Qt przyciemnia kolor zaznaczonego przedmiotu.
-        QIcon icon(swatch);
-        icon.addPixmap(swatch, QIcon::Selected);
-        item->setIcon(icon);
+        item->setIcon(swatchIcon(s.color));
         if (s.id == currentSubject) {
             subjectList->setCurrentItem(item);
             subjectLabel->setText(s.name);
@@ -226,6 +322,98 @@ void TrackerWindow::refreshSubjects() {
 
     if (!dashboard->isHidden())
         chart->reload();
+}
+
+void TrackerWindow::addTodoFromInput() {
+    const QString text = todoInput->text().trimmed();
+    if (text.isEmpty()) return;
+
+    addTodo(text, todoSubject->currentData().toInt());
+    todoInput->clear();
+    refreshTodos();
+}
+
+void TrackerWindow::refreshTodos() {
+    // Rozwiązywane zadania są już odhaczone w bazie, więc znikną razem z listą.
+    solveAnimation->stop();
+
+    QSet<int> checked;
+    for (int row = 0; row < todoList->count(); ++row) {
+        const QListWidgetItem* item = todoList->item(row);
+        if (item->checkState() == Qt::Checked)
+            checked.insert(item->data(TodoIdRole).toInt());
+    }
+
+    {
+        const QSignalBlocker blocker(todoList);
+        todoList->clear();
+
+        for (const Todo& t : openTodos()) {
+            auto* item = new QListWidgetItem(t.text, todoList);
+            item->setData(TodoIdRole, t.id);
+            item->setData(TodoColorRole, t.color);
+            item->setIcon(swatchIcon(t.color));
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+            item->setCheckState(checked.contains(t.id) ? Qt::Checked : Qt::Unchecked);
+        }
+    }
+    updateSolveButton();
+}
+
+void TrackerWindow::solveCheckedTodos() {
+    // Poprzednia animacja mogła jeszcze trwać.
+    solveAnimation->stop();
+    removeSolvedTodos();
+
+    {
+        const QSignalBlocker blocker(todoList);
+        for (int row = 0; row < todoList->count(); ++row) {
+            QListWidgetItem* item = todoList->item(row);
+            if (item->checkState() != Qt::Checked) continue;
+            // Zapis od razu, żeby zamknięcie programu w trakcie animacji nic nie zgubiło.
+            completeTodo(item->data(TodoIdRole).toInt());
+            item->setData(TodoSolvingRole, true);
+            item->setFlags(Qt::ItemIsEnabled);
+        }
+    }
+    updateSolveButton();
+    solveAnimation->start();
+}
+
+void TrackerWindow::removeSolvedTodos() {
+    for (int row = todoList->count() - 1; row >= 0; --row) {
+        if (todoList->item(row)->data(TodoSolvingRole).toBool())
+            delete todoList->takeItem(row);
+    }
+    todoDelegate->progress = 0;
+}
+
+void TrackerWindow::updateSolveButton() {
+    bool anyChecked = false;
+    for (int row = 0; row < todoList->count(); ++row) {
+        const QListWidgetItem* item = todoList->item(row);
+        if (item->checkState() == Qt::Checked && !item->data(TodoSolvingRole).toBool())
+            anyChecked = true;
+    }
+    solveBtn->setEnabled(anyChecked);
+}
+
+void TrackerWindow::showTodoMenu(const QPoint& pos) {
+    const QListWidgetItem* item = todoList->itemAt(pos);
+    if (!item || item->data(TodoSolvingRole).toBool()) return;
+    const int todoId = item->data(TodoIdRole).toInt();
+
+    // Te same pozycje co przy dodawaniu zadania.
+    QMenu menu(this);
+    for (int i = 0; i < todoSubject->count(); ++i) {
+        menu.addAction(todoSubject->itemIcon(i), todoSubject->itemText(i))
+            ->setData(todoSubject->itemData(i));
+    }
+
+    if (const QAction* chosen = menu.exec(todoList->viewport()->mapToGlobal(pos))) {
+        setTodoSubject(todoId, chosen->data().toInt());
+        refreshTodos();
+    }
 }
 
 void TrackerWindow::updateControls() {

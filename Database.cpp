@@ -22,21 +22,25 @@ static bool hasColumn(const QString& table, const QString& column) {
 static bool seedSubjects() {
     // Odcienie dobrane tak, żeby dało się je rozróżnić na ciemnym tle,
     // także przy zaburzeniach widzenia barw (czerwony kontra zielony).
+    // Kolejność tutaj to kolejność wyświetlania przedmiotów i ich zadań.
     const struct { const char* name; const char* color; } subjects[] = {
         {"Algorithms", "#d93f4c"},
-        {"Python",     "#c99a16"},
         {"C++/CUDA",   "#2fb37a"},
         {"Go",         "#3b8fe6"},
+        {"Python",     "#c99a16"},
     };
 
     QSqlQuery q;
     // Przedmiot z czasów polskiego interfejsu zachowuje swoje sesje pod nową nazwą.
     q.exec("UPDATE OR IGNORE subjects SET name = 'Algorithms' WHERE name = 'Algorytmy'");
-    q.prepare("INSERT INTO subjects(name, color) VALUES(?, ?) "
-              "ON CONFLICT(name) DO UPDATE SET color = excluded.color");
+    q.prepare("INSERT INTO subjects(name, color, position) VALUES(?, ?, ?) "
+              "ON CONFLICT(name) DO UPDATE SET color = excluded.color, "
+              "position = excluded.position");
+    int position = 0;
     for (const auto& s : subjects) {
         q.addBindValue(s.name);
         q.addBindValue(s.color);
+        q.addBindValue(position++);
         if (!q.exec()) {
             qCritical() << "Database initialization error:" << q.lastError().text();
             return false;
@@ -62,7 +66,8 @@ bool openDatabase() {
         "CREATE TABLE IF NOT EXISTS subjects ("
         "id INTEGER PRIMARY KEY, "
         "name TEXT NOT NULL UNIQUE, "
-        "color TEXT NOT NULL DEFAULT '#9da0a8')",
+        "color TEXT NOT NULL DEFAULT '#9da0a8', "
+        "position INTEGER NOT NULL DEFAULT 0)",
         // Jeden wiersz = jeden nieprzerwany odcinek nauki (pauza kończy odcinek).
         "CREATE TABLE IF NOT EXISTS sessions ("
         "id INTEGER PRIMARY KEY, "
@@ -71,6 +76,13 @@ bool openDatabase() {
         "end_ts INTEGER NOT NULL)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_subject_start "
         "ON sessions(subject_id, start_ts)",
+        // Odhaczone zadanie zostaje w bazie z czasem wykonania, tylko znika z listy.
+        "CREATE TABLE IF NOT EXISTS todos ("
+        "id INTEGER PRIMARY KEY, "
+        "text TEXT NOT NULL, "
+        "created_ts INTEGER NOT NULL, "
+        "done_ts INTEGER, "
+        "subject_id INTEGER REFERENCES subjects(id))",
     };
 
     QSqlQuery q;
@@ -81,11 +93,19 @@ bool openDatabase() {
         }
     }
 
-    // Bazy utworzone przed dodaniem kolorów nie mają tej kolumny.
-    if (!hasColumn("subjects", "color")
-        && !q.exec("ALTER TABLE subjects ADD COLUMN color TEXT NOT NULL DEFAULT '#9da0a8'")) {
-        qCritical() << "Database migration error:" << q.lastError().text();
-        return false;
+    // Starsze bazy nie mają kolumn dodanych po ich utworzeniu.
+    const struct { const char* table; const char* column; const char* definition; } added[] = {
+        {"subjects", "color",      "TEXT NOT NULL DEFAULT '#9da0a8'"},
+        {"subjects", "position",   "INTEGER NOT NULL DEFAULT 0"},
+        {"todos",    "subject_id", "INTEGER REFERENCES subjects(id)"},
+    };
+    for (const auto& c : added) {
+        if (!hasColumn(c.table, c.column)
+            && !q.exec(QString("ALTER TABLE %1 ADD COLUMN %2 %3")
+                           .arg(c.table, c.column, c.definition))) {
+            qCritical() << "Database migration error:" << q.lastError().text();
+            return false;
+        }
     }
 
     return seedSubjects();
@@ -99,7 +119,7 @@ QList<SubjectTotal> subjectsWithTodayTotals() {
               "COALESCE(SUM(se.end_ts - MAX(se.start_ts, ?)), 0) "
               "FROM subjects s "
               "LEFT JOIN sessions se ON se.subject_id = s.id AND se.end_ts > ? "
-              "GROUP BY s.id ORDER BY s.id");
+              "GROUP BY s.id ORDER BY s.position, s.id");
     q.addBindValue(dayStart);
     q.addBindValue(dayStart);
 
@@ -133,4 +153,56 @@ QList<Session> sessionsBetween(qint64 from, qint64 to) {
     while (q.next())
         result.append({q.value(0).toInt(), q.value(1).toLongLong(), q.value(2).toLongLong()});
     return result;
+}
+
+QList<Todo> openTodos() {
+    QSqlQuery q;
+    QList<Todo> result;
+    if (!q.exec("SELECT t.id, t.text, s.color FROM todos t "
+                "LEFT JOIN subjects s ON s.id = t.subject_id "
+                "WHERE t.done_ts IS NULL "
+                "ORDER BY s.id IS NULL, s.position, t.id")) {
+        qWarning() << "Database reading error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        result.append({q.value(0).toInt(), q.value(1).toString(),
+                       q.value(2).isNull() ? QColor() : QColor(q.value(2).toString())});
+    }
+    return result;
+}
+
+static QVariant subjectOrNull(int subjectId) {
+    return subjectId == -1 ? QVariant() : QVariant(subjectId);
+}
+
+void addTodo(const QString& text, int subjectId) {
+    QSqlQuery q;
+    q.prepare("INSERT INTO todos(text, created_ts, subject_id) VALUES(?, ?, ?)");
+    q.addBindValue(text);
+    q.addBindValue(QDateTime::currentSecsSinceEpoch());
+    q.addBindValue(subjectOrNull(subjectId));
+
+    if (!q.exec())
+        qWarning() << "Database saving error:" << q.lastError().text();
+}
+
+void setTodoSubject(int id, int subjectId) {
+    QSqlQuery q;
+    q.prepare("UPDATE todos SET subject_id = ? WHERE id = ?");
+    q.addBindValue(subjectOrNull(subjectId));
+    q.addBindValue(id);
+
+    if (!q.exec())
+        qWarning() << "Database saving error:" << q.lastError().text();
+}
+
+void completeTodo(int id) {
+    QSqlQuery q;
+    q.prepare("UPDATE todos SET done_ts = ? WHERE id = ?");
+    q.addBindValue(QDateTime::currentSecsSinceEpoch());
+    q.addBindValue(id);
+
+    if (!q.exec())
+        qWarning() << "Database saving error:" << q.lastError().text();
 }

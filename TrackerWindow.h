@@ -7,9 +7,13 @@
 
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QVariantAnimation;
+class TodoDelegate;
 
 // Małe okienko ze stoperem, które można rozwinąć do pulpitu z wyborem przedmiotu.
 class TrackerWindow : public QWidget {
@@ -26,6 +30,12 @@ private:
     void selectSubject(int subjectId);
     void showSection(ChartWidget::Range section);
     void refreshSubjects();
+    void addTodoFromInput();
+    void refreshTodos();
+    void solveCheckedTodos();
+    void removeSolvedTodos();
+    void updateSolveButton();
+    void showTodoMenu(const QPoint& pos);
     void updateControls();
     void updateTime();
 
@@ -44,6 +54,12 @@ private:
     QPushButton* expandBtn;
     QWidget* dashboard;
     QListWidget* subjectList;
+    QLineEdit* todoInput;
+    QComboBox* todoSubject;
+    QListWidget* todoList;
+    TodoDelegate* todoDelegate;
+    QPushButton* solveBtn;
+    QVariantAnimation* solveAnimation;
     QPushButton* todayBtn;
     QPushButton* weekBtn;
     ChartWidget* chart;
