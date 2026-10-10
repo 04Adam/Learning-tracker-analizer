@@ -30,6 +30,8 @@ bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
 // Odcinki nauki przycięte do przedziału [from, to), posortowane po czasie startu.
 QList<Session> sessionsBetween(qint64 from, qint64 to);
+// Początek najstarszego odcinka nauki; 0, gdy nie ma jeszcze żadnego.
+qint64 firstSessionStart();
 
 // Zadania jeszcze nieodhaczone, w kolejności przedmiotów; te bez przedmiotu na końcu.
 QList<Todo> openTodos();

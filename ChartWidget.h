@@ -4,6 +4,7 @@
 
 #include "Database.h"
 
+#include <QDate>
 #include <QHash>
 #include <QWidget>
 
@@ -15,7 +16,8 @@ public:
 
     explicit ChartWidget(QWidget* parent = nullptr);
 
-    void setView(Range newRange, Mode newMode);
+    // Nieprawidłowa data oznacza bieżący dzień albo tydzień.
+    void setView(Range newRange, Mode newMode, QDate newDate = {});
     void reload();
 
 protected:
@@ -38,6 +40,9 @@ private:
 
     Range range = Range::Today;
     Mode mode = Mode::Totals;
+    QDate date;
+    // Pierwszy dzień pokazywanego okresu.
+    QDate firstDate;
 
     QList<SubjectTotal> subjects;
     QList<Session> sessions;

@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -149,6 +150,10 @@ TrackerWindow::TrackerWindow() {
     weekBtn->setProperty("section", true);
     todayBtn->setCheckable(true);
     weekBtn->setCheckable(true);
+    weekPicker = new QComboBox(dashboard);
+    weekPicker->setPlaceholderText("Previous weeks");
+    weekPicker->setMinimumContentsLength(15);
+    weekPicker->setMaxVisibleItems(12);
     auto* hint = new QLabel("Click again: bars ↔ over time", dashboard);
     hint->setEnabled(false);
     chart = new ChartWidget(dashboard);
@@ -171,6 +176,7 @@ TrackerWindow::TrackerWindow() {
     auto* sections = new QHBoxLayout;
     sections->addWidget(todayBtn);
     sections->addWidget(weekBtn);
+    sections->addWidget(weekPicker);
     sections->addSpacing(12);
     sections->addWidget(hint);
     sections->addStretch();
@@ -198,6 +204,9 @@ TrackerWindow::TrackerWindow() {
     connect(quitBtn, &QPushButton::clicked, qApp, &QApplication::quit);
     connect(todayBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Today); });
     connect(weekBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Week); });
+    // Sygnał przychodzi też przy ponownym wybraniu tego samego tygodnia.
+    connect(weekPicker, &QComboBox::activated, this,
+            [this](int index) { showPastWeek(weekPicker->itemData(index).toDate()); });
     connect(subjectList, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
         if (item)
             selectSubject(item->data(Qt::UserRole).toInt());
@@ -278,12 +287,26 @@ void TrackerWindow::toggleDashboard() {
 
 void TrackerWindow::showSection(ChartWidget::Range section) {
     ChartWidget::Mode& mode = section == ChartWidget::Range::Today ? todayMode : weekMode;
-    if (section == currentSection) {
+    // Z wcześniejszego tygodnia przycisk sekcji najpierw wraca do bieżącego okresu.
+    if (section == currentSection && !pastWeek.isValid()) {
         mode = mode == ChartWidget::Mode::Totals ? ChartWidget::Mode::Cumulative
                                                  : ChartWidget::Mode::Totals;
     }
     currentSection = section;
+    pastWeek = {};
     chart->setView(section, mode);
+    updateControls();
+}
+
+void TrackerWindow::showPastWeek(const QDate& monday) {
+    // Wcześniejsze tygodnie dzielą tryb z sekcją tygodnia; ponowny wybór go przełącza.
+    if (monday == pastWeek) {
+        weekMode = weekMode == ChartWidget::Mode::Totals ? ChartWidget::Mode::Cumulative
+                                                         : ChartWidget::Mode::Totals;
+    }
+    currentSection = ChartWidget::Range::Week;
+    pastWeek = monday;
+    chart->setView(ChartWidget::Range::Week, weekMode, monday);
     updateControls();
 }
 
@@ -320,8 +343,34 @@ void TrackerWindow::refreshSubjects() {
         }
     }
 
+    refreshWeeks();
     if (!dashboard->isHidden())
         chart->reload();
+}
+
+void TrackerWindow::refreshWeeks() {
+    // Lista zmienia się tylko wtedy, gdy kończy się tydzień: trafia na nią ten miniony.
+    const QDate today = QDate::currentDate();
+    const QDate thisMonday = today.addDays(1 - today.dayOfWeek());
+    if (thisMonday == listedBefore) return;
+    listedBefore = thisMonday;
+
+    const QSignalBlocker blocker(weekPicker);
+    weekPicker->clear();
+
+    // Od zeszłego tygodnia wstecz do tygodnia z najstarszym odcinkiem nauki.
+    const qint64 firstStart = firstSessionStart();
+    if (firstStart > 0) {
+        const QDate firstDay = QDateTime::fromSecsSinceEpoch(firstStart).date();
+        for (QDate monday = thisMonday.addDays(-7); monday.addDays(7) > firstDay;
+             monday = monday.addDays(-7)) {
+            const QString format = monday.year() == today.year() ? "dd.MM" : "dd.MM.yyyy";
+            weekPicker->addItem(monday.toString(format) + " – "
+                                    + monday.addDays(6).toString(format), monday);
+        }
+    }
+    weekPicker->setEnabled(weekPicker->count() > 0);
+    weekPicker->setCurrentIndex(weekPicker->findData(pastWeek));
 }
 
 void TrackerWindow::addTodoFromInput() {
@@ -425,7 +474,8 @@ void TrackerWindow::updateControls() {
     startPauseBtn->setEnabled(currentSubject != -1);
     stopBtn->setEnabled(counter.state() != Counter::State::Stopped);
     todayBtn->setChecked(currentSection == ChartWidget::Range::Today);
-    weekBtn->setChecked(currentSection == ChartWidget::Range::Week);
+    weekBtn->setChecked(currentSection == ChartWidget::Range::Week && !pastWeek.isValid());
+    weekPicker->setCurrentIndex(weekPicker->findData(pastWeek));
     expandBtn->setText(dashboard->isHidden() ? "▼" : "▲");
     expandBtn->setToolTip(dashboard->isHidden() ? "Expand dashboard" : "Collapse dashboard");
 }

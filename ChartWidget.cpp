@@ -27,23 +27,24 @@ ChartWidget::ChartWidget(QWidget* parent) : QWidget(parent) {
     reload();
 }
 
-void ChartWidget::setView(Range newRange, Mode newMode) {
+void ChartWidget::setView(Range newRange, Mode newMode, QDate newDate) {
     range = newRange;
     mode = newMode;
+    date = newDate;
     hoverTime = -1;
     reload();
 }
 
 void ChartWidget::reload() {
-    const QDate today = QDate::currentDate();
+    const QDate anchor = date.isValid() ? date : QDate::currentDate();
     if (range == Range::Today) {
-        rangeStart = today.startOfDay().toSecsSinceEpoch();
-        rangeEnd = today.addDays(1).startOfDay().toSecsSinceEpoch();
+        firstDate = anchor;
+        rangeEnd = anchor.addDays(1).startOfDay().toSecsSinceEpoch();
     } else {
-        const QDate monday = today.addDays(1 - today.dayOfWeek());
-        rangeStart = monday.startOfDay().toSecsSinceEpoch();
-        rangeEnd = monday.addDays(7).startOfDay().toSecsSinceEpoch();
+        firstDate = anchor.addDays(1 - anchor.dayOfWeek());
+        rangeEnd = firstDate.addDays(7).startOfDay().toSecsSinceEpoch();
     }
+    rangeStart = firstDate.startOfDay().toSecsSinceEpoch();
     lineEnd = std::clamp(QDateTime::currentSecsSinceEpoch(), rangeStart, rangeEnd);
 
     subjects = subjectsWithTodayTotals();
@@ -61,12 +62,17 @@ QRectF ChartWidget::plotRect() const {
 }
 
 QString ChartWidget::title() const {
+    const QLocale en(QLocale::English);
+    const QDate today = QDate::currentDate();
     if (range == Range::Today) {
-        return mode == Mode::Totals ? "Today · time per subject"
-                                    : "Today · cumulative time through the day";
+        const QString day = firstDate == today ? "Today" : en.toString(firstDate, "dddd, d MMMM yyyy");
+        return day + (mode == Mode::Totals ? " · time per subject"
+                                           : " · cumulative time through the day");
     }
-    return mode == Mode::Totals ? "This week · time per subject"
-                                : "This week · cumulative time by day";
+    const QString week = firstDate.daysTo(today) < 7 && firstDate <= today
+        ? "This week"
+        : en.toString(firstDate, "d MMM") + " – " + en.toString(firstDate.addDays(6), "d MMM yyyy");
+    return week + (mode == Mode::Totals ? " · time per subject" : " · cumulative time by day");
 }
 
 qint64 ChartWidget::axisStep() const {

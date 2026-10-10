@@ -155,6 +155,15 @@ QList<Session> sessionsBetween(qint64 from, qint64 to) {
     return result;
 }
 
+qint64 firstSessionStart() {
+    QSqlQuery q;
+    if (!q.exec("SELECT MIN(start_ts) FROM sessions") || !q.next()) {
+        qWarning() << "Database reading error:" << q.lastError().text();
+        return 0;
+    }
+    return q.value(0).toLongLong();
+}
+
 QList<Todo> openTodos() {
     QSqlQuery q;
     QList<Todo> result;

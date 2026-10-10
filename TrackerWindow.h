@@ -29,7 +29,9 @@ private:
     void toggleDashboard();
     void selectSubject(int subjectId);
     void showSection(ChartWidget::Range section);
+    void showPastWeek(const QDate& monday);
     void refreshSubjects();
+    void refreshWeeks();
     void addTodoFromInput();
     void refreshTodos();
     void solveCheckedTodos();
@@ -46,6 +48,11 @@ private:
     // Ponowne kliknięcie sekcji przełącza ją między słupkami a liniami.
     ChartWidget::Mode todayMode = ChartWidget::Mode::Totals;
     ChartWidget::Mode weekMode = ChartWidget::Mode::Totals;
+    // Poniedziałek wcześniejszego tygodnia wybranego z listy; nieprawidłowy,
+    // gdy oglądana jest zwykła sekcja dnia albo tygodnia.
+    QDate pastWeek;
+    // Poniedziałek tygodnia, przed którym kończy się lista wcześniejszych tygodni.
+    QDate listedBefore;
 
     QLabel* subjectLabel;
     QLabel* timeLabel;
@@ -62,6 +69,7 @@ private:
     QVariantAnimation* solveAnimation;
     QPushButton* todayBtn;
     QPushButton* weekBtn;
+    QComboBox* weekPicker;
     ChartWidget* chart;
 };
 
