@@ -73,6 +73,20 @@ public:
     }
 };
 
+// Dzień: słupki ↔ linie; tydzień ma jeszcze trzeci wykres ze słupkami dla każdego dnia.
+static ChartWidget::Mode nextMode(ChartWidget::Mode mode, ChartWidget::Range range) {
+    switch (mode) {
+        case ChartWidget::Mode::Totals:
+            return ChartWidget::Mode::Cumulative;
+        case ChartWidget::Mode::Cumulative:
+            return range == ChartWidget::Range::Week ? ChartWidget::Mode::Daily
+                                                     : ChartWidget::Mode::Totals;
+        case ChartWidget::Mode::Daily:
+            break;
+    }
+    return ChartWidget::Mode::Totals;
+}
+
 TrackerWindow::TrackerWindow() {
     setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
     setObjectName("tracker");
@@ -154,7 +168,7 @@ TrackerWindow::TrackerWindow() {
     weekPicker->setPlaceholderText("Previous weeks");
     weekPicker->setMinimumContentsLength(15);
     weekPicker->setMaxVisibleItems(12);
-    auto* hint = new QLabel("Click again: bars ↔ over time", dashboard);
+    auto* hint = new QLabel("Click again: bars → over time → week by day", dashboard);
     hint->setEnabled(false);
     chart = new ChartWidget(dashboard);
 
@@ -288,10 +302,8 @@ void TrackerWindow::toggleDashboard() {
 void TrackerWindow::showSection(ChartWidget::Range section) {
     ChartWidget::Mode& mode = section == ChartWidget::Range::Today ? todayMode : weekMode;
     // Z wcześniejszego tygodnia przycisk sekcji najpierw wraca do bieżącego okresu.
-    if (section == currentSection && !pastWeek.isValid()) {
-        mode = mode == ChartWidget::Mode::Totals ? ChartWidget::Mode::Cumulative
-                                                 : ChartWidget::Mode::Totals;
-    }
+    if (section == currentSection && !pastWeek.isValid())
+        mode = nextMode(mode, section);
     currentSection = section;
     pastWeek = {};
     chart->setView(section, mode);
@@ -300,10 +312,8 @@ void TrackerWindow::showSection(ChartWidget::Range section) {
 
 void TrackerWindow::showPastWeek(const QDate& monday) {
     // Wcześniejsze tygodnie dzielą tryb z sekcją tygodnia; ponowny wybór go przełącza.
-    if (monday == pastWeek) {
-        weekMode = weekMode == ChartWidget::Mode::Totals ? ChartWidget::Mode::Cumulative
-                                                         : ChartWidget::Mode::Totals;
-    }
+    if (monday == pastWeek)
+        weekMode = nextMode(weekMode, ChartWidget::Range::Week);
     currentSection = ChartWidget::Range::Week;
     pastWeek = monday;
     chart->setView(ChartWidget::Range::Week, weekMode, monday);

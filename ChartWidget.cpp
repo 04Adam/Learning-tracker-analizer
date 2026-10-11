@@ -54,6 +54,22 @@ void ChartWidget::reload() {
     for (const Session& s : sessions)
         totals[s.subjectId] += s.end - s.start;
 
+    dayTotals.clear();
+    if (range == Range::Week) {
+        // Odcinek przechodzący przez północ liczy się do obu dni.
+        for (int day = 0; day < 7; ++day) {
+            const qint64 dayStart = firstDate.addDays(day).startOfDay().toSecsSinceEpoch();
+            const qint64 dayEnd = firstDate.addDays(day + 1).startOfDay().toSecsSinceEpoch();
+            QHash<int, qint64> dayTotal;
+            for (const Session& s : sessions) {
+                const qint64 overlap = std::min(s.end, dayEnd) - std::max(s.start, dayStart);
+                if (overlap > 0)
+                    dayTotal[s.subjectId] += overlap;
+            }
+            dayTotals.append(dayTotal);
+        }
+    }
+
     update();
 }
 
@@ -72,13 +88,30 @@ QString ChartWidget::title() const {
     const QString week = firstDate.daysTo(today) < 7 && firstDate <= today
         ? "This week"
         : en.toString(firstDate, "d MMM") + " – " + en.toString(firstDate.addDays(6), "d MMM yyyy");
-    return week + (mode == Mode::Totals ? " · time per subject" : " · cumulative time by day");
+    switch (mode) {
+        case Mode::Totals:     return week + " · time per subject";
+        case Mode::Cumulative: return week + " · cumulative time by day";
+        case Mode::Daily:      return week + " · time per subject each day";
+    }
+    return week;
+}
+
+qint64 ChartWidget::maxValue() const {
+    qint64 result = 0;
+    if (mode == Mode::Daily) {
+        for (const QHash<int, qint64>& dayTotal : dayTotals) {
+            for (qint64 v : dayTotal)
+                result = std::max(result, v);
+        }
+    } else {
+        for (qint64 v : totals)
+            result = std::max(result, v);
+    }
+    return result;
 }
 
 qint64 ChartWidget::axisStep() const {
-    qint64 maxValue = 0;
-    for (qint64 v : totals)
-        maxValue = std::max(maxValue, v);
+    const qint64 maxValue = this->maxValue();
 
     const qint64 steps[] = {60, 120, 300, 600, 900, 1800, 3600, 7200,
                             4 * 3600, 6 * 3600, 12 * 3600, 24 * 3600};
@@ -90,10 +123,7 @@ qint64 ChartWidget::axisStep() const {
 }
 
 qint64 ChartWidget::axisTop() const {
-    qint64 maxValue = 0;
-    for (qint64 v : totals)
-        maxValue = std::max(maxValue, v);
-
+    const qint64 maxValue = this->maxValue();
     const qint64 step = axisStep();
     return std::max(step, (maxValue + step - 1) / step * step);
 }
@@ -132,7 +162,11 @@ void ChartWidget::paintEvent(QPaintEvent*) {
         drawTotals(p, plot);
     } else {
         drawLegend(p);
-        drawCumulative(p, plot);
+        drawTimeAxis(p, plot);
+        if (mode == Mode::Cumulative)
+            drawCumulative(p, plot);
+        else
+            drawDaily(p, plot);
     }
 
     if (sessions.isEmpty()) {
@@ -205,7 +239,7 @@ void ChartWidget::drawTotals(QPainter& p, const QRectF& plot) const {
     }
 }
 
-void ChartWidget::drawCumulative(QPainter& p, const QRectF& plot) const {
+void ChartWidget::drawTimeAxis(QPainter& p, const QRectF& plot) const {
     // Oś czasu: godziny w widoku dnia, dni tygodnia w widoku tygodnia.
     if (range == Range::Today) {
         for (int hour = 0; hour <= 24; hour += 3) {
@@ -230,7 +264,9 @@ void ChartWidget::drawCumulative(QPainter& p, const QRectF& plot) const {
             }
         }
     }
+}
 
+void ChartWidget::drawCumulative(QPainter& p, const QRectF& plot) const {
     const qint64 top = axisTop();
     const auto yForValue = [&](qint64 v) {
         return plot.bottom() - plot.height() * qreal(v) / qreal(top);
@@ -268,6 +304,36 @@ void ChartWidget::drawCumulative(QPainter& p, const QRectF& plot) const {
     }
 }
 
+void ChartWidget::drawDaily(QPainter& p, const QRectF& plot) const {
+    if (subjects.isEmpty() || dayTotals.isEmpty()) return;
+
+    const qint64 top = axisTop();
+    const qreal dayWidth = plot.width() / 7;
+    // Każdy przedmiot ma stałe miejsce w grupie, także gdy danego dnia ma zero.
+    const qreal barSlot = std::min(dayWidth * 0.7 / subjects.size(), 28.0);
+    const qreal barWidth = std::max(barSlot - 3, 2.0);
+    const qreal groupWidth = barSlot * subjects.size();
+
+    p.save();
+    p.setClipRect(plot);
+    p.setPen(Qt::NoPen);
+    for (int day = 0; day < dayTotals.size(); ++day) {
+        const qreal groupLeft = plot.left() + dayWidth * (day + 0.5) - groupWidth / 2;
+        for (int i = 0; i < subjects.size(); ++i) {
+            const qint64 value = dayTotals[day].value(subjects[i].id);
+            if (value == 0) continue;
+
+            // Nawet bardzo krótka nauka ma być widoczna.
+            const qreal barHeight = std::max(plot.height() * qreal(value) / qreal(top), 2.0);
+            const QRectF bar(groupLeft + barSlot * i + (barSlot - barWidth) / 2,
+                             plot.bottom() - barHeight, barWidth, barHeight);
+            p.setBrush(subjects[i].color);
+            p.drawRoundedRect(bar.adjusted(0, 0, 0, 4), 2, 2);
+        }
+    }
+    p.restore();
+}
+
 void ChartWidget::mouseMoveEvent(QMouseEvent* event) {
     const QRectF plot = plotRect();
     const QPointF pos = event->position();
@@ -281,6 +347,17 @@ void ChartWidget::mouseMoveEvent(QMouseEvent* event) {
             const SubjectTotal& s = subjects[index];
             text = QString("<b>%1</b><br>%2").arg(s.name.toHtmlEscaped(),
                                                   formatDuration(totals.value(s.id)));
+        } else if (mode == Mode::Daily) {
+            const int day = std::min(int((pos.x() - plot.left()) / (plot.width() / 7)), 6);
+            if (day < dayTotals.size()) {
+                text = "<b>" + QLocale(QLocale::English).toString(firstDate.addDays(day),
+                                                                  "dddd, d MMM") + "</b>";
+                for (const SubjectTotal& s : subjects) {
+                    text += QString("<br><span style='color:%1'>■</span> %2: %3")
+                                .arg(s.color.name(), s.name.toHtmlEscaped(),
+                                     formatDuration(dayTotals[day].value(s.id)));
+                }
+            }
         } else {
             const qint64 t = rangeStart
                 + qint64((pos.x() - plot.left()) / plot.width() * (rangeEnd - rangeStart));

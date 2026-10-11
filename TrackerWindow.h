@@ -45,7 +45,7 @@ private:
     int currentSubject = -1;
 
     ChartWidget::Range currentSection = ChartWidget::Range::Today;
-    // Ponowne kliknięcie sekcji przełącza ją między słupkami a liniami.
+    // Ponowne kliknięcie sekcji przełącza ją na kolejny wykres; trzeci ma tylko tydzień.
     ChartWidget::Mode todayMode = ChartWidget::Mode::Totals;
     ChartWidget::Mode weekMode = ChartWidget::Mode::Totals;
     // Poniedziałek wcześniejszego tygodnia wybranego z listy; nieprawidłowy,

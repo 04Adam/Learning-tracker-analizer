@@ -8,11 +8,13 @@
 #include <QHash>
 #include <QWidget>
 
-// Wykres czasu nauki: słupki z sumą na przedmiot albo linie narastające w czasie.
+// Wykres czasu nauki: słupki z sumą na przedmiot, linie narastające w czasie
+// albo małe słupki przedmiotów dla każdego dnia tygodnia.
 class ChartWidget : public QWidget {
 public:
     enum class Range { Today, Week };
-    enum class Mode { Totals, Cumulative };
+    // Daily ma sens tylko dla tygodnia.
+    enum class Mode { Totals, Cumulative, Daily };
 
     explicit ChartWidget(QWidget* parent = nullptr);
 
@@ -28,6 +30,7 @@ protected:
 private:
     QRectF plotRect() const;
     QString title() const;
+    qint64 maxValue() const;
     qint64 axisStep() const;
     qint64 axisTop() const;
     qreal xForTime(qint64 t, const QRectF& plot) const;
@@ -36,7 +39,9 @@ private:
     void drawLegend(QPainter& p) const;
     void drawValueAxis(QPainter& p, const QRectF& plot) const;
     void drawTotals(QPainter& p, const QRectF& plot) const;
+    void drawTimeAxis(QPainter& p, const QRectF& plot) const;
     void drawCumulative(QPainter& p, const QRectF& plot) const;
+    void drawDaily(QPainter& p, const QRectF& plot) const;
 
     Range range = Range::Today;
     Mode mode = Mode::Totals;
@@ -47,6 +52,8 @@ private:
     QList<SubjectTotal> subjects;
     QList<Session> sessions;
     QHash<int, qint64> totals;
+    // Sumy na przedmiot osobno dla każdego dnia tygodnia; puste w widoku dnia.
+    QList<QHash<int, qint64>> dayTotals;
     qint64 rangeStart = 0;
     qint64 rangeEnd = 1;
     // Linie kończą się na "teraz", a nie na końcu dnia/tygodnia.
