@@ -1,11 +1,13 @@
 // TrackerWindow.cpp
 #include "TrackerWindow.h"
 #include "AndroidBridge.h"
+#include "Autostart.h"
 #include "Database.h"
 #include "Sync.h"
 
 #include <QApplication>
 #include <QCalendarWidget>
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDateTime>
@@ -486,11 +488,15 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
     connect(qApp, &QApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
         if (state != Qt::ApplicationActive) {
             counter.checkpoint();
+            // Zmiany z telefonu trafiają na komputer, zanim aplikacja zniknie z ekranu.
+            if (this->mobile)
+                sync(true);
         } else if (this->mobile) {
             updateTime();
             refreshSubjects();
             // Powiadomienie wysłane przed zgodą użytkownika na powiadomienia przepadło.
             updateNotification();
+            sync(true);
         }
     });
 
@@ -517,6 +523,23 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
         }
     });
     autosave->start(10000);
+
+    // Telefon z otwartą aplikacją co chwilę wymienia dane z komputerem, jeśli ten jest w sieci.
+    if (mobile) {
+        auto* autosync = new QTimer(this);
+        connect(autosync, &QTimer::timeout, this, [this, hidden] {
+            if (!hidden())
+                sync(true);
+        });
+        autosync->start(2 * 60 * 1000);
+        QTimer::singleShot(0, this, [this] { sync(true); });
+        // Zamknięta aplikacja synchronizuje się w tle; gdy przy tym działa, odświeża widok.
+        onBackgroundSync([this] {
+            syncIdleText = "Synced at " + QTime::currentTime().toString("HH:mm");
+            syncBtn->setText(syncIdleText);
+            reloadAfterSync();
+        });
+    }
 
     refreshSubjectPickers();
     refreshSubjects();
@@ -596,52 +619,81 @@ void TrackerWindow::updateNotification() {
                               counter.state() == Counter::State::Running);
 }
 
-void TrackerWindow::sync() {
+void TrackerWindow::sync(bool automatic) {
     if (!mobile) {
-        const QString text = syncListening
-            ? QString("Keep this program running, then tap \"Sync with computer\" on the phone "
-                      "and enter:\n\nAddress: %1\nCode: %2")
-                  .arg(syncAddresses().join("  or  "), syncCode())
-            : QString("Sync is not available: another program is using its network port.");
-        QMessageBox::information(this, "Sync with phone", text);
+        showSyncInfo();
         return;
     }
 
-    if (syncSetting("host").toString().isEmpty() && !askSyncTarget()) return;
+    if (syncing) return;
+    if (normalizePairingCode(syncSetting("code").toString()).isEmpty()
+        && (automatic || !askSyncTarget()))
+        return;
 
     // Trwająca nauka ma trafić na komputer z aktualnym czasem.
     counter.checkpoint();
-    syncBtn->setEnabled(false);
-    syncBtn->setText("Syncing…");
-    const QString host = syncSetting("host").toString();
-    syncWithHost(this, host, syncSetting("code").toString(), [this, host](const QString& error) {
+    syncing = true;
+    if (!automatic) {
+        syncBtn->setEnabled(false);
+        syncBtn->setText("Syncing…");
+    }
+    syncNow(this, [this, automatic](const QString& error, bool changed) {
+        syncing = false;
         syncBtn->setEnabled(true);
-        if (error.isEmpty()) {
-            syncBtn->setText("Synced at " + QTime::currentTime().toString("HH:mm"));
-            reloadAfterSync();
+        if (!error.isEmpty()) {
+            syncBtn->setText(syncIdleText);
+            if (!automatic
+                && askYesNo("Sync", error + "\n\nChange the pairing code or the computer's "
+                                    "address?")
+                && askSyncTarget())
+                sync();
             return;
         }
-        syncBtn->setText("Sync with computer");
-        if (askYesNo("Sync", QString("Could not sync with %1:\n%2\n\nChange the address or code?")
-                                 .arg(host, error))
-            && askSyncTarget())
-            sync();
+        syncIdleText = "Synced at " + QTime::currentTime().toString("HH:mm");
+        syncBtn->setText(syncIdleText);
+        if (changed)
+            reloadAfterSync();
     });
+}
+
+void TrackerWindow::showSyncInfo() {
+    QMessageBox box(QMessageBox::Information, "Sync with phone",
+        syncListening
+            ? QString("Keep this program running. The phone syncs by itself whenever it is on "
+                      "the same Wi-Fi, even with its app closed.\n\n"
+                      "Pairing code to enter on the phone once:\n%1\n\n"
+                      "Address (only if the phone cannot find this computer): %2")
+                  .arg(pairingCode(), syncAddresses().join("  or  "))
+            : QString("Sync is not available: another program is using its network port."),
+        QMessageBox::Ok, this);
+    box.setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* autostart = new QCheckBox("Start this program when I log in", &box);
+    autostart->setChecked(autostartEnabled());
+    box.setCheckBox(autostart);
+    box.exec();
+    if (autostart->isChecked() != autostartEnabled())
+        setAutostart(autostart->isChecked());
 }
 
 bool TrackerWindow::askSyncTarget() {
     bool accepted = false;
-    const QString host = askText("Sync", "Computer address (the computer shows it under "
+    const QString code = askText("Sync", "Pairing code (the computer shows it under "
                                  "\"Sync with phone…\"):",
-                                 syncSetting("host").toString(), &accepted).trimmed();
-    if (!accepted || host.isEmpty()) return false;
+                                 syncSetting("code").toString(), &accepted).trimmed();
+    if (!accepted) return false;
+    if (normalizePairingCode(code).isEmpty()) {
+        showWarning("Sync", "That is not a pairing code. It has 20 letters and digits, "
+                            "like ABCD-1234-EFGH-5678-JKMN.");
+        return false;
+    }
 
-    const QString code = askText("Sync", "Code:", syncSetting("code").toString(),
-                                 &accepted).trimmed();
-    if (!accepted || code.isEmpty()) return false;
+    const QString host = askText("Sync", "Computer address (leave empty to find it "
+                                 "automatically):",
+                                 syncSetting("host").toString(), &accepted).trimmed();
+    if (!accepted) return false;
 
     setSyncSetting("host", host);
-    setSyncSetting("code", code);
+    setSyncSetting("code", formatPairingCode(code));
     return true;
 }
 
@@ -667,6 +719,8 @@ void TrackerWindow::toggleRunning() {
     updateControls();
     updateTime();
     updateNotification();
+    if (mobile && counter.state() == Counter::State::Paused)
+        sync(true);
 }
 
 void TrackerWindow::stop() {
@@ -675,6 +729,8 @@ void TrackerWindow::stop() {
     updateControls();
     updateTime();
     updateNotification();
+    if (mobile)
+        sync(true);
 }
 
 void TrackerWindow::toggleDashboard() {

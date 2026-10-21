@@ -30,6 +30,7 @@ struct Todo {
     QDate deadline;
 };
 
+QString databasePath();
 bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
 // Nowy przedmiot trafia na koniec listy; false, gdy taka nazwa już istnieje.
@@ -51,7 +52,13 @@ void completeTodo(int id);
 
 // Cała baza w postaci, którą druga strona synchronizacji potrafi scalić ze swoją.
 QJsonObject exportSnapshot();
-// Dopisuje brakujące wiersze i przyjmuje nowsze zmiany; niczego nie usuwa.
-bool mergeSnapshot(const QJsonObject& snapshot);
+// Scalanie dopisuje brakujące wiersze i niczego nie usuwa. Gdy to samo pole zmieniono na
+// obu urządzeniach od ostatniej synchronizacji, wygrywa komputer.
+enum class MergeResult { Failed, Unchanged, Changed };
+// Na komputerze: zmiana z telefonu wygrywa, gdy jest nowsza, a komputer nie zmieniał tego
+// pola od lastSync (czas komputera z poprzedniej synchronizacji z tym telefonem).
+MergeResult mergeFromPhone(const QJsonObject& snapshot, qint64 lastSync);
+// Na telefonie: komputer odsyła stan już rozstrzygnięty, więc jego wartości wygrywają.
+MergeResult mergeFromComputer(const QJsonObject& snapshot);
 
 #endif

@@ -63,7 +63,9 @@ private:
     void updateControls();
     void updateNotification();
     void goBack();
-    void sync();
+    // Samoczynna synchronizacja nie pyta o nic i nie pokazuje błędów.
+    void sync(bool automatic = false);
+    void showSyncInfo();
     bool askSyncTarget();
     void reloadAfterSync();
     void updateTime();
@@ -101,6 +103,9 @@ private:
     std::function<void(int)> finishSheet;
     // Na komputerze: czy udało się zacząć czekać na telefon.
     bool syncListening = false;
+    // Na telefonie: czy synchronizacja właśnie trwa i co pokazuje przycisk między nimi.
+    bool syncing = false;
+    QString syncIdleText = "Sync with computer";
     QLineEdit* todoInput;
     QComboBox* todoSubject;
     QPushButton* deadlineBtn;

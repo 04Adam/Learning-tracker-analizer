@@ -15,6 +15,8 @@ qt_add_executable(LearningTimeAnalizer
         main.cpp
         AndroidBridge.cpp
         AndroidBridge.h
+        Autostart.cpp
+        Autostart.h
         ChartWidget.cpp
         ChartWidget.h
         Counter.cpp
@@ -44,6 +46,9 @@ if (NOT ANDROID)
         set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "" FORCE)
     endif ()
     include(GNUInstallDirs)
+    # Tylko zainstalowany program sam dodaje się do autostartu.
+    target_compile_definitions(LearningTimeAnalizer PRIVATE
+            STUDYTRACKER_INSTALLED_BINARY="${CMAKE_INSTALL_FULL_BINDIR}/LearningTimeAnalizer")
     configure_file(studytracker.desktop.in studytracker.desktop @ONLY)
     install(TARGETS LearningTimeAnalizer RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/studytracker.desktop"
@@ -61,3 +66,8 @@ target_link_libraries(LearningTimeAnalizer PRIVATE
         Qt6::Sql
         Qt6::Network
 )
+# Szyfrowanie synchronizacji na komputerze; na Androidzie robi to Java.
+if (NOT ANDROID)
+    find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+    target_link_libraries(LearningTimeAnalizer PRIVATE OpenSSL::Crypto)
+endif ()

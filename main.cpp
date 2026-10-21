@@ -1,5 +1,7 @@
 // main.cpp
+#include "Autostart.h"
 #include "Database.h"
+#include "Sync.h"
 #include "TrackerWindow.h"
 
 #include <QApplication>
@@ -51,6 +53,8 @@ int main(int argc, char* argv[]) {
     QApplication::setWindowIcon(QIcon(":/icons/studytracker.png"));
     applyDarkTheme();
 
+    // Synchronizacja w tle mogła właśnie pracować na bazie; czekamy, aż skończy.
+    prepareSync();
     if (!openDatabase())
         return 1;
 
@@ -74,7 +78,14 @@ int main(int argc, char* argv[]) {
         QRect screen = app.primaryScreen()->availableGeometry();
         window.move(screen.right() - window.width() - 10, screen.top() + 10);
     }
-    window.show();
+    // Autostart uruchamia program schowany, żeby tylko czekał na telefon.
+    if (!mobile && app.arguments().contains("--minimized")) {
+        window.showMinimized();
+    } else {
+        window.show();
+    }
+    if (!mobile)
+        enableAutostartOnFirstRun();
 
     return app.exec();
 }

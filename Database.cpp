@@ -12,6 +12,8 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 
+#include <functional>
+
 static bool hasColumn(const QString& table, const QString& column) {
     QSqlQuery q("PRAGMA table_info(" + table + ")");
     while (q.next()) {
@@ -51,12 +53,15 @@ static bool seedSubjects() {
     return true;
 }
 
+QString databasePath() {
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/study.db";
+}
+
 bool openDatabase() {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(dir);
+    QDir().mkpath(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
 
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
-    db.setDatabaseName(dir + "/study.db");
+    db.setDatabaseName(databasePath());
     if (!db.open()) {
         qCritical() << "Cannot open database:" << db.lastError().text();
         return false;
@@ -345,7 +350,10 @@ static bool run(QSqlQuery& q, const QVariantList& values) {
     return false;
 }
 
-static bool mergeRows(const QJsonObject& snapshot) {
+// takeIncoming(localTs, incomingTs) mówi, czy pole zmienione na obu urządzeniach ma przyjąć
+// wartość z drugiego urządzenia.
+static bool mergeRows(const QJsonObject& snapshot,
+                      const std::function<bool(qint64, qint64)>& takeIncoming) {
     QSqlQuery q;
 
     for (const QJsonValue& value : snapshot["subjects"].toArray()) {
@@ -361,7 +369,7 @@ static bool mergeRows(const QJsonObject& snapshot) {
             q.prepare("INSERT INTO subjects(name, color, color_ts, position) "
                       "SELECT ?, ?, ?, COALESCE(MAX(position), -1) + 1 FROM subjects");
             if (!run(q, {name, color.name(), colorTs})) return false;
-        } else if (colorTs > q.value(1).toLongLong()) {
+        } else if (takeIncoming(q.value(1).toLongLong(), colorTs)) {
             const int id = q.value(0).toInt();
             q.prepare("UPDATE subjects SET color = ?, color_ts = ? WHERE id = ?");
             if (!run(q, {color.name(), colorTs, id})) return false;
@@ -412,8 +420,8 @@ static bool mergeRows(const QJsonObject& snapshot) {
 
         const int id = q.value(0).toInt();
         const QVariant localDone = q.value(1);
-        const bool newerSubject = subjectTs > q.value(2).toLongLong();
-        const bool newerDeadline = deadlineTs > q.value(3).toLongLong();
+        const bool newerSubject = takeIncoming(q.value(2).toLongLong(), subjectTs);
+        const bool newerDeadline = takeIncoming(q.value(3).toLongLong(), deadlineTs);
         // Zadanie odhaczone na którymkolwiek urządzeniu jest odhaczone na obu.
         if (done.isNull() || (!localDone.isNull() && localDone.toLongLong() < done.toLongLong()))
             done = localDone;
@@ -432,15 +440,29 @@ static bool mergeRows(const QJsonObject& snapshot) {
     return true;
 }
 
-bool mergeSnapshot(const QJsonObject& snapshot) {
+static MergeResult merge(const QJsonObject& snapshot,
+                         const std::function<bool(qint64, qint64)>& takeIncoming) {
+    // Porównanie całej bazy przed i po jest proste, a baza ma najwyżej kilka megabajtów.
+    const QJsonObject before = exportSnapshot();
     QSqlDatabase db = QSqlDatabase::database();
     if (!db.transaction()) {
         qWarning() << "Database merging error:" << db.lastError().text();
-        return false;
+        return MergeResult::Failed;
     }
-    if (!mergeRows(snapshot)) {
+    if (!mergeRows(snapshot, takeIncoming)) {
         db.rollback();
-        return false;
+        return MergeResult::Failed;
     }
-    return db.commit();
+    if (!db.commit()) return MergeResult::Failed;
+    return exportSnapshot() == before ? MergeResult::Unchanged : MergeResult::Changed;
+}
+
+MergeResult mergeFromPhone(const QJsonObject& snapshot, qint64 lastSync) {
+    return merge(snapshot, [lastSync](qint64 localTs, qint64 incomingTs) {
+        return incomingTs > localTs && localTs <= lastSync;
+    });
+}
+
+MergeResult mergeFromComputer(const QJsonObject& snapshot) {
+    return merge(snapshot, [](qint64, qint64) { return true; });
 }
