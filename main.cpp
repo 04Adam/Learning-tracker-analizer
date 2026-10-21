@@ -3,12 +3,18 @@
 #include "TrackerWindow.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QPalette>
 #include <QScreen>
+#include <QStyleHints>
 #include <QToolTip>
 
 static void applyDarkTheme() {
     QApplication::setStyle("Fusion");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // Android dobiera do tego jasne ikony na pasku stanu.
+    QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+#endif
 
     const QColor window(0x1e, 0x1f, 0x22);
     const QColor surface(0x2b, 0x2d, 0x30);
@@ -40,15 +46,34 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     // Nazwa wyznacza katalog z bazą danych (~/.local/share/StudyTracker).
     QApplication::setApplicationName("StudyTracker");
+    // Po tej nazwie pulpit łączy okno ze skrótem studytracker.desktop.
+    QApplication::setDesktopFileName("studytracker");
+    QApplication::setWindowIcon(QIcon(":/icons/studytracker.png"));
     applyDarkTheme();
 
     if (!openDatabase())
         return 1;
 
-    TrackerWindow window;
-    window.adjustSize();
-    QRect screen = app.primaryScreen()->availableGeometry();
-    window.move(screen.right() - window.width() - 10, screen.top() + 10);
+    // Na komputerze --mobile pokazuje układ z telefonu w zwykłym oknie.
+#ifdef Q_OS_ANDROID
+    const bool mobile = true;
+#else
+    const bool mobile = app.arguments().contains("--mobile");
+#endif
+
+    // Android daje przyciskom i listom mniejszą czcionkę niż reszcie; wyrównujemy do niej.
+    if (mobile)
+        QApplication::setFont(QApplication::font("QPushButton"));
+
+    TrackerWindow window(mobile);
+    if (mobile) {
+        // Android i tak rozciąga okno na cały ekran.
+        window.resize(400, 800);
+    } else {
+        window.adjustSize();
+        QRect screen = app.primaryScreen()->availableGeometry();
+        window.move(screen.right() - window.width() - 10, screen.top() + 10);
+    }
     window.show();
 
     return app.exec();

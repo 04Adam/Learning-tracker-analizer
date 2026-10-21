@@ -6,6 +6,7 @@
 #include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QTextDocument>
 #include <QToolTip>
 
 #include <algorithm>
@@ -35,7 +36,23 @@ void ChartWidget::setView(Range newRange, Mode newMode, QDate newDate) {
     reload();
 }
 
+void ChartWidget::setSubject(int subjectId) {
+    subjectFilter = subjectId;
+    hoverTime = -1;
+    reload();
+}
+
+void ChartWidget::setInlineDetails(bool enabled) {
+    inlineDetails = enabled;
+}
+
 void ChartWidget::reload() {
+    // Narysowane szczegóły nie odświeżają się same, więc nie mogą przeżyć nowych danych.
+    if (inlineDetails) {
+        detailsText.clear();
+        hoverTime = -1;
+    }
+
     const QDate anchor = date.isValid() ? date : QDate::currentDate();
     if (range == Range::Today) {
         firstDate = anchor;
@@ -49,6 +66,10 @@ void ChartWidget::reload() {
 
     subjects = subjectsWithTodayTotals();
     sessions = sessionsBetween(rangeStart, rangeEnd);
+    if (subjectFilter != -1) {
+        subjects.removeIf([this](const SubjectTotal& s) { return s.id != subjectFilter; });
+        sessions.removeIf([this](const Session& s) { return s.subjectId != subjectFilter; });
+    }
 
     totals.clear();
     for (const Session& s : sessions)
@@ -74,7 +95,29 @@ void ChartWidget::reload() {
 }
 
 QRectF ChartWidget::plotRect() const {
-    return QRectF(72, 88, width() - 72 - 28, height() - 88 - 44);
+    qreal top = 88;
+    if (mode != Mode::Totals && !subjects.isEmpty())
+        top += legendPositions().last().y() - 53;
+    return QRectF(72, top, width() - 72 - 28, height() - top - 44);
+}
+
+// Lewy górny róg każdego wpisu; na wąskim ekranie legenda zawija się do kolejnych wierszy.
+QList<QPointF> ChartWidget::legendPositions() const {
+    const QFontMetricsF fm(font());
+    QList<QPointF> result;
+    qreal x = 16;
+    qreal y = 53;
+    for (const SubjectTotal& s : subjects) {
+        const qreal entryWidth = 18 + fm.horizontalAdvance(s.name + "  ")
+                                 + fm.horizontalAdvance(formatDuration(totals.value(s.id)));
+        if (x > 16 && x + entryWidth > width() - 16) {
+            x = 16;
+            y += 20;
+        }
+        result.append({x, y});
+        x += entryWidth + 24;
+    }
+    return result;
 }
 
 QString ChartWidget::title() const {
@@ -99,9 +142,12 @@ QString ChartWidget::title() const {
 qint64 ChartWidget::maxValue() const {
     qint64 result = 0;
     if (mode == Mode::Daily) {
+        // Słupki dnia stoją jeden na drugim, więc liczy się suma dnia.
         for (const QHash<int, qint64>& dayTotal : dayTotals) {
+            qint64 daySum = 0;
             for (qint64 v : dayTotal)
-                result = std::max(result, v);
+                daySum += v;
+            result = std::max(result, daySum);
         }
     } else {
         for (qint64 v : totals)
@@ -141,16 +187,30 @@ qint64 ChartWidget::cumulativeAt(int subjectId, qint64 t) const {
     return sum;
 }
 
+// Przedmioty z nauką danego dnia, od najdłuższej (dół słupka) do najkrótszej.
+QList<const SubjectTotal*> ChartWidget::subjectsByDayTime(int day) const {
+    QList<const SubjectTotal*> result;
+    for (const SubjectTotal& s : subjects) {
+        if (dayTotals[day].value(s.id) > 0)
+            result.append(&s);
+    }
+    std::stable_sort(result.begin(), result.end(), [&](const SubjectTotal* a, const SubjectTotal* b) {
+        return dayTotals[day].value(a->id) > dayTotals[day].value(b->id);
+    });
+    return result;
+}
+
 void ChartWidget::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
     QFont titleFont = font();
     titleFont.setBold(true);
-    titleFont.setPointSize(titleFont.pointSize() + 3);
+    titleFont.setPointSizeF(QFontInfo(titleFont).pointSizeF() + 3);
     p.setFont(titleFont);
     p.setPen(palette().color(QPalette::WindowText));
-    p.drawText(QRectF(16, 10, width() - 32, 30), Qt::AlignLeft | Qt::AlignVCenter, title());
+    p.drawText(QRectF(16, 10, width() - 32, 30), Qt::AlignLeft | Qt::AlignVCenter,
+               p.fontMetrics().elidedText(title(), Qt::ElideRight, width() - 32));
     p.setFont(font());
 
     const QRectF plot = plotRect();
@@ -173,26 +233,52 @@ void ChartWidget::paintEvent(QPaintEvent*) {
         p.setPen(kMuted);
         p.drawText(plot, Qt::AlignCenter, "No study time recorded in this period");
     }
+
+    if (!detailsText.isEmpty())
+        drawDetails(p);
+}
+
+void ChartWidget::drawDetails(QPainter& p) const {
+    QTextDocument text;
+    text.setDefaultFont(font());
+    text.setDocumentMargin(8);
+    text.setHtml(QString("<div style='color:%1'>%2</div>")
+                     .arg(palette().color(QPalette::WindowText).name(), detailsText));
+
+    // Nad palcem, żeby dłoń nie zasłaniała treści, ale zawsze w granicach wykresu.
+    QRectF box(QPointF(), text.size());
+    box.moveCenter(detailsPos);
+    box.moveBottom(detailsPos.y() - 28);
+    box.moveLeft(std::clamp(box.left(), 4.0, std::max(4.0, width() - 4 - box.width())));
+    box.moveTop(std::max(box.top(), 4.0));
+
+    p.setPen(QPen(kMuted, 1));
+    p.setBrush(palette().color(QPalette::Base));
+    p.drawRoundedRect(box, 6, 6);
+    p.translate(box.topLeft());
+    text.drawContents(&p);
 }
 
 void ChartWidget::drawLegend(QPainter& p) const {
     const QFontMetricsF fm(font());
-    qreal x = 16;
-    for (const SubjectTotal& s : subjects) {
+    const QList<QPointF> positions = legendPositions();
+    for (int i = 0; i < subjects.size(); ++i) {
+        const SubjectTotal& s = subjects[i];
+        qreal x = positions[i].x();
+        const qreal y = positions[i].y();
+
         p.setPen(Qt::NoPen);
         p.setBrush(s.color);
-        p.drawRoundedRect(QRectF(x, 53, 12, 12), 3, 3);
+        p.drawRoundedRect(QRectF(x, y, 12, 12), 3, 3);
         x += 18;
 
         const QString name = s.name + "  ";
         p.setPen(palette().color(QPalette::WindowText));
-        p.drawText(QPointF(x, 64), name);
+        p.drawText(QPointF(x, y + 11), name);
         x += fm.horizontalAdvance(name);
 
-        const QString value = formatDuration(totals.value(s.id));
         p.setPen(kMuted);
-        p.drawText(QPointF(x, 64), value);
-        x += fm.horizontalAdvance(value) + 24;
+        p.drawText(QPointF(x, y + 11), formatDuration(totals.value(s.id)));
     }
 }
 
@@ -242,7 +328,9 @@ void ChartWidget::drawTotals(QPainter& p, const QRectF& plot) const {
 void ChartWidget::drawTimeAxis(QPainter& p, const QRectF& plot) const {
     // Oś czasu: godziny w widoku dnia, dni tygodnia w widoku tygodnia.
     if (range == Range::Today) {
-        for (int hour = 0; hour <= 24; hour += 3) {
+        // Na wąskim ekranie podpisy co trzy godziny nachodziłyby na siebie.
+        const int hourStep = plot.width() < 420 ? 6 : 3;
+        for (int hour = 0; hour <= 24; hour += hourStep) {
             const qreal x = plot.left() + plot.width() * hour / 24.0;
             p.setPen(QPen(kGrid, 1));
             p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
@@ -309,29 +397,36 @@ void ChartWidget::drawDaily(QPainter& p, const QRectF& plot) const {
 
     const qint64 top = axisTop();
     const qreal dayWidth = plot.width() / 7;
-    // Każdy przedmiot ma stałe miejsce w grupie, także gdy danego dnia ma zero.
-    const qreal barSlot = std::min(dayWidth * 0.7 / subjects.size(), 28.0);
-    const qreal barWidth = std::max(barSlot - 3, 2.0);
-    const qreal groupWidth = barSlot * subjects.size();
+    const qreal barWidth = std::min(dayWidth * 0.55, 48.0);
 
     p.save();
     p.setClipRect(plot);
     p.setPen(Qt::NoPen);
     for (int day = 0; day < dayTotals.size(); ++day) {
-        const qreal groupLeft = plot.left() + dayWidth * (day + 0.5) - groupWidth / 2;
-        for (int i = 0; i < subjects.size(); ++i) {
-            const qint64 value = dayTotals[day].value(subjects[i].id);
-            if (value == 0) continue;
-
+        const QList<const SubjectTotal*> order = subjectsByDayTime(day);
+        const qreal left = plot.left() + dayWidth * (day + 0.5) - barWidth / 2;
+        qreal bottom = plot.bottom();
+        for (int i = 0; i < order.size(); ++i) {
+            const qint64 value = dayTotals[day].value(order[i]->id);
             // Nawet bardzo krótka nauka ma być widoczna.
-            const qreal barHeight = std::max(plot.height() * qreal(value) / qreal(top), 2.0);
-            const QRectF bar(groupLeft + barSlot * i + (barSlot - barWidth) / 2,
-                             plot.bottom() - barHeight, barWidth, barHeight);
-            p.setBrush(subjects[i].color);
-            p.drawRoundedRect(bar.adjusted(0, 0, 0, 4), 2, 2);
+            const qreal height = std::max(plot.height() * qreal(value) / qreal(top), 2.0);
+            const QRectF segment(left, bottom - height, barWidth, height);
+            p.setBrush(order[i]->color);
+            if (i == order.size() - 1) {
+                // Zaokrąglona jest tylko góra całego słupka.
+                p.drawRoundedRect(segment.adjusted(0, 0, 0, 4), 3, 3);
+            } else {
+                p.drawRect(segment);
+            }
+            bottom -= height;
         }
     }
     p.restore();
+}
+
+void ChartWidget::mousePressEvent(QMouseEvent* event) {
+    // Na ekranie dotykowym nie ma najechania: szczegóły pokazuje dotknięcie.
+    mouseMoveEvent(event);
 }
 
 void ChartWidget::mouseMoveEvent(QMouseEvent* event) {
@@ -350,12 +445,18 @@ void ChartWidget::mouseMoveEvent(QMouseEvent* event) {
         } else if (mode == Mode::Daily) {
             const int day = std::min(int((pos.x() - plot.left()) / (plot.width() / 7)), 6);
             if (day < dayTotals.size()) {
+                qint64 daySum = 0;
+                for (qint64 v : dayTotals[day])
+                    daySum += v;
                 text = "<b>" + QLocale(QLocale::English).toString(firstDate.addDays(day),
-                                                                  "dddd, d MMM") + "</b>";
-                for (const SubjectTotal& s : subjects) {
+                                                                  "dddd, d MMM")
+                       + " · " + formatDuration(daySum) + "</b>";
+                // Ta sama kolejność co w słupku, tylko od góry.
+                const QList<const SubjectTotal*> order = subjectsByDayTime(day);
+                for (auto it = order.crbegin(); it != order.crend(); ++it) {
                     text += QString("<br><span style='color:%1'>■</span> %2: %3")
-                                .arg(s.color.name(), s.name.toHtmlEscaped(),
-                                     formatDuration(dayTotals[day].value(s.id)));
+                                .arg((*it)->color.name(), (*it)->name.toHtmlEscaped(),
+                                     formatDuration(dayTotals[day].value((*it)->id)));
                 }
             }
         } else {
@@ -378,6 +479,13 @@ void ChartWidget::mouseMoveEvent(QMouseEvent* event) {
     if (newHover != hoverTime) {
         hoverTime = newHover;
         update();
+    }
+    // Osobne okno dymka otwierane w trakcie dotyku wywraca Qt na Androidzie.
+    if (inlineDetails) {
+        detailsText = text;
+        detailsPos = pos;
+        update();
+        return;
     }
     if (text.isEmpty())
         QToolTip::hideText();

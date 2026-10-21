@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=StudyTracker
+Comment=Learning time tracker
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/LearningTimeAnalizer
+Icon=studytracker
+Terminal=false
+Categories=Education;
+StartupWMClass=StudyTracker

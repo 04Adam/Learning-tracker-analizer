@@ -9,7 +9,7 @@
 #include <QWidget>
 
 // Wykres czasu nauki: słupki z sumą na przedmiot, linie narastające w czasie
-// albo małe słupki przedmiotów dla każdego dnia tygodnia.
+// albo słupek złożony z przedmiotów dla każdego dnia tygodnia.
 class ChartWidget : public QWidget {
 public:
     enum class Range { Today, Week };
@@ -20,21 +20,28 @@ public:
 
     // Nieprawidłowa data oznacza bieżący dzień albo tydzień.
     void setView(Range newRange, Mode newMode, QDate newDate = {});
+    // -1 pokazuje wszystkie przedmioty.
+    void setSubject(int subjectId);
+    // Szczegóły pod palcem rysowane na samym wykresie zamiast w osobnym dymku.
+    void setInlineDetails(bool enabled);
     void reload();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
 
 private:
     QRectF plotRect() const;
+    QList<QPointF> legendPositions() const;
     QString title() const;
     qint64 maxValue() const;
     qint64 axisStep() const;
     qint64 axisTop() const;
     qreal xForTime(qint64 t, const QRectF& plot) const;
     qint64 cumulativeAt(int subjectId, qint64 t) const;
+    QList<const SubjectTotal*> subjectsByDayTime(int day) const;
 
     void drawLegend(QPainter& p) const;
     void drawValueAxis(QPainter& p, const QRectF& plot) const;
@@ -42,12 +49,15 @@ private:
     void drawTimeAxis(QPainter& p, const QRectF& plot) const;
     void drawCumulative(QPainter& p, const QRectF& plot) const;
     void drawDaily(QPainter& p, const QRectF& plot) const;
+    void drawDetails(QPainter& p) const;
 
     Range range = Range::Today;
     Mode mode = Mode::Totals;
     QDate date;
     // Pierwszy dzień pokazywanego okresu.
     QDate firstDate;
+    // Jedyny pokazywany przedmiot; -1, gdy pokazywane są wszystkie.
+    int subjectFilter = -1;
 
     QList<SubjectTotal> subjects;
     QList<Session> sessions;
@@ -59,6 +69,10 @@ private:
     // Linie kończą się na "teraz", a nie na końcu dnia/tygodnia.
     qint64 lineEnd = 0;
     qint64 hoverTime = -1;
+    bool inlineDetails = false;
+    // Treść i miejsce szczegółów rysowanych na wykresie; pusta, gdy nic nie pokazujemy.
+    QString detailsText;
+    QPointF detailsPos;
 };
 
 #endif

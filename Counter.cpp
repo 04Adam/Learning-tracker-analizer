@@ -60,7 +60,8 @@ void Counter::openSegment() {
     segmentStart = system_clock::now();
 
     QSqlQuery q;
-    q.prepare("INSERT INTO sessions(subject_id, start_ts, end_ts) VALUES(?, ?, ?)");
+    q.prepare("INSERT INTO sessions(subject_id, start_ts, end_ts, uid) "
+              "VALUES(?, ?, ?, lower(hex(randomblob(16))))");
     q.addBindValue(subject);
     q.addBindValue(toTs(segmentStart));
     q.addBindValue(toTs(segmentStart));

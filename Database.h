@@ -3,6 +3,8 @@
 #define LEARNINGTIMEANALIZER_DATABASE_H
 
 #include <QColor>
+#include <QDate>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 
@@ -24,20 +26,32 @@ struct Todo {
     QString text;
     // Kolor przypisanego przedmiotu; nieprawidłowy, gdy zadanie nie ma przedmiotu.
     QColor color;
+    // Nieprawidłowy u zadań dodanych, zanim pojawiły się terminy.
+    QDate deadline;
 };
 
 bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
+// Nowy przedmiot trafia na koniec listy; false, gdy taka nazwa już istnieje.
+bool addSubject(const QString& name, const QColor& color);
+void setSubjectColor(int id, const QColor& color);
 // Odcinki nauki przycięte do przedziału [from, to), posortowane po czasie startu.
 QList<Session> sessionsBetween(qint64 from, qint64 to);
 // Początek najstarszego odcinka nauki; 0, gdy nie ma jeszcze żadnego.
 qint64 firstSessionStart();
 
-// Zadania jeszcze nieodhaczone, w kolejności przedmiotów; te bez przedmiotu na końcu.
+// Zadania jeszcze nieodhaczone, od najbliższego terminu; te bez terminu na końcu.
+// Przy równych terminach w kolejności przedmiotów, z zadaniami bez przedmiotu na końcu.
 QList<Todo> openTodos();
 // subjectId == -1 oznacza zadanie bez przedmiotu.
-void addTodo(const QString& text, int subjectId);
+void addTodo(const QString& text, int subjectId, const QDate& deadline);
 void setTodoSubject(int id, int subjectId);
+void setTodoDeadline(int id, const QDate& deadline);
 void completeTodo(int id);
+
+// Cała baza w postaci, którą druga strona synchronizacji potrafi scalić ze swoją.
+QJsonObject exportSnapshot();
+// Dopisuje brakujące wiersze i przyjmuje nowsze zmiany; niczego nie usuwa.
+bool mergeSnapshot(const QJsonObject& snapshot);
 
 #endif
