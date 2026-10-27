@@ -5,6 +5,7 @@
 #include "ChartWidget.h"
 #include "Counter.h"
 
+#include <optional>
 #include <QWidget>
 
 #include <functional>
@@ -43,7 +44,8 @@ private:
     void addSubjectFromDialog();
     void changeSubjectColor();
     QColor pickColor(const QColor& initial, const QString& title);
-    QDate pickDate(const QDate& initial, const QString& title);
+    // std::nullopt po anulowaniu; nieprawidłowa data, gdy wybrano "bez terminu".
+    std::optional<QDate> pickDate(const QDate& initial, const QString& title);
     void pickFromSheet(QComboBox* picker, const QString& title);
     int runSheet(const QString& text, QWidget* content, const QStringList& buttons);
     QString askText(const QString& title, const QString& label, const QString& initial,
@@ -112,6 +114,8 @@ private:
     // Przy zaznaczonych zadaniach przycisk zmienia ich termin, a bez nich ustawia termin
     // dodawanego zadania; nieprawidłowy oznacza dzisiaj.
     QDate newTodoDeadline;
+    // Dodawane zadanie nie dostanie terminu i trafi na koniec listy.
+    bool newTodoWithoutDeadline = false;
     QListWidget* todoList;
     TodoDelegate* todoDelegate;
     QPushButton* solveBtn;

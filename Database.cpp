@@ -12,6 +12,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 
+#include <algorithm>
 #include <functional>
 
 static bool hasColumn(const QString& table, const QString& column) {
@@ -120,6 +121,10 @@ bool openDatabase() {
         // Termin to dzień w zapisie rrrr-mm-dd, niezależny od strefy czasowej urządzenia.
         {"todos",    "deadline",    "TEXT"},
         {"todos",    "deadline_ts", "INTEGER NOT NULL DEFAULT 0"},
+        // Czas ręcznej poprawki odcinka; 0, gdy nikt go nie poprawiał. Usunięty odcinek
+        // zostaje w bazie z end_ts = start_ts, żeby drugie urządzenie nie przywróciło go.
+        {"sessions", "edit_ts",     "INTEGER NOT NULL DEFAULT 0"},
+        {"todos",    "deleted_ts",  "INTEGER"},
     };
     for (const auto& c : added) {
         if (!hasColumn(c.table, c.column)
@@ -203,7 +208,7 @@ void setSubjectColor(int id, const QColor& color) {
 QList<Session> sessionsBetween(qint64 from, qint64 to) {
     QSqlQuery q;
     q.prepare("SELECT subject_id, MAX(start_ts, ?), MIN(end_ts, ?) "
-              "FROM sessions WHERE end_ts > ? AND start_ts < ? "
+              "FROM sessions WHERE end_ts > ? AND start_ts < ? AND end_ts > start_ts "
               "ORDER BY start_ts");
     q.addBindValue(from);
     q.addBindValue(to);
@@ -222,7 +227,7 @@ QList<Session> sessionsBetween(qint64 from, qint64 to) {
 
 qint64 firstSessionStart() {
     QSqlQuery q;
-    if (!q.exec("SELECT MIN(start_ts) FROM sessions") || !q.next()) {
+    if (!q.exec("SELECT MIN(start_ts) FROM sessions WHERE end_ts > start_ts") || !q.next()) {
         qWarning() << "Database reading error:" << q.lastError().text();
         return 0;
     }
@@ -234,7 +239,7 @@ QList<Todo> openTodos() {
     QList<Todo> result;
     if (!q.exec("SELECT t.id, t.text, s.color, t.deadline FROM todos t "
                 "LEFT JOIN subjects s ON s.id = t.subject_id "
-                "WHERE t.done_ts IS NULL "
+                "WHERE t.done_ts IS NULL AND t.deleted_ts IS NULL "
                 "ORDER BY t.deadline IS NULL, t.deadline, s.id IS NULL, s.position, t.id")) {
         qWarning() << "Database reading error:" << q.lastError().text();
         return result;
@@ -300,6 +305,65 @@ void completeTodo(int id) {
         qWarning() << "Database saving error:" << q.lastError().text();
 }
 
+void deleteTodo(int id) {
+    QSqlQuery q;
+    q.prepare("UPDATE todos SET deleted_ts = ? WHERE id = ?");
+    q.addBindValue(QDateTime::currentSecsSinceEpoch());
+    q.addBindValue(id);
+
+    if (!q.exec())
+        qWarning() << "Database saving error:" << q.lastError().text();
+}
+
+QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to) {
+    QList<DoneTodo> result;
+
+    // Także odcinki tuż przed przedziałem: zadanie odhaczone po nich nie może trafić
+    // do późniejszej nauki tylko dlatego, że tamte nie zostały wczytane.
+    struct Span { int subjectId; qint64 start; qint64 end; };
+    QList<Span> spans;
+    QSqlQuery q;
+    q.prepare("SELECT subject_id, start_ts, end_ts FROM sessions "
+              "WHERE end_ts > start_ts AND end_ts > ? AND start_ts < ? ORDER BY start_ts");
+    q.addBindValue(from - kTodoAfterSession);
+    q.addBindValue(to);
+    if (!q.exec()) {
+        qWarning() << "Database reading error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next())
+        spans.append({q.value(0).toInt(), q.value(1).toLongLong(), q.value(2).toLongLong()});
+    if (spans.isEmpty()) return result;
+
+    q.prepare("SELECT text, subject_id, done_ts FROM todos "
+              "WHERE done_ts IS NOT NULL AND deleted_ts IS NULL AND done_ts >= ? AND done_ts < ? "
+              "ORDER BY done_ts");
+    q.addBindValue(std::max(spans.first().start, kTodosCountFrom));
+    q.addBindValue(to + kTodoAfterSession);
+    if (!q.exec()) {
+        qWarning() << "Database reading error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        const int subject = q.value(1).isNull() ? -1 : q.value(1).toInt();
+        const qint64 done = q.value(2).toLongLong();
+
+        // Najpóźniej rozpoczęta pasująca nauka, czyli ta, w trakcie lub po której odhaczono.
+        const Span* match = nullptr;
+        for (const Span& s : spans) {
+            if (s.start > done) break;
+            if (done <= s.end + kTodoAfterSession && (subject == -1 || s.subjectId == subject))
+                match = &s;
+        }
+        if (!match || match->end <= from) continue;
+
+        const qint64 at = std::clamp(done, std::max(match->start, from),
+                                     std::min(match->end, to) - 1);
+        result.append({q.value(0).toString(), match->subjectId, done, at});
+    }
+    return result;
+}
+
 QJsonObject exportSnapshot() {
     QJsonArray subjects, sessions, todos;
     QSqlQuery q;
@@ -313,18 +377,19 @@ QJsonObject exportSnapshot() {
                                     {"color_ts", q.value(2).toLongLong()}});
     }
 
-    if (!q.exec("SELECT se.uid, s.name, se.start_ts, se.end_ts FROM sessions se "
+    if (!q.exec("SELECT se.uid, s.name, se.start_ts, se.end_ts, se.edit_ts FROM sessions se "
                 "JOIN subjects s ON s.id = se.subject_id"))
         qWarning() << "Database reading error:" << q.lastError().text();
     while (q.next()) {
         sessions.append(QJsonObject{{"uid", q.value(0).toString()},
                                     {"subject", q.value(1).toString()},
                                     {"start", q.value(2).toLongLong()},
-                                    {"end", q.value(3).toLongLong()}});
+                                    {"end", q.value(3).toLongLong()},
+                                    {"edit_ts", q.value(4).toLongLong()}});
     }
 
     if (!q.exec("SELECT t.uid, t.text, t.created_ts, t.done_ts, s.name, t.subject_ts, "
-                "t.deadline, t.deadline_ts "
+                "t.deadline, t.deadline_ts, t.deleted_ts "
                 "FROM todos t LEFT JOIN subjects s ON s.id = t.subject_id"))
         qWarning() << "Database reading error:" << q.lastError().text();
     while (q.next()) {
@@ -336,7 +401,8 @@ QJsonObject exportSnapshot() {
             {"subject", q.value(4).isNull() ? QJsonValue() : QJsonValue(q.value(4).toString())},
             {"subject_ts", q.value(5).toLongLong()},
             {"deadline", q.value(6).isNull() ? QJsonValue() : QJsonValue(q.value(6).toString())},
-            {"deadline_ts", q.value(7).toLongLong()}});
+            {"deadline_ts", q.value(7).toLongLong()},
+            {"deleted", q.value(8).isNull() ? QJsonValue() : QJsonValue(q.value(8).toLongLong())}});
     }
 
     return {{"subjects", subjects}, {"sessions", sessions}, {"todos", todos}};
@@ -385,15 +451,34 @@ static bool mergeRows(const QJsonObject& snapshot,
     };
 
     // Odcinek trwającej nauki przychodzi wiele razy, za każdym razem z późniejszym końcem.
+    // Ręczna poprawka (edit_ts) zastępuje cały odcinek, także krótszym albo pustym.
     for (const QJsonValue& value : snapshot["sessions"].toArray()) {
         const QJsonObject s = value.toObject();
         const QString uid = s["uid"].toString();
         const int subject = subjectId(s["subject"]);
         if (uid.isEmpty() || subject == -1) continue;
+        const qint64 start = s["start"].toInteger();
+        const qint64 end = s["end"].toInteger();
+        const qint64 editTs = s["edit_ts"].toInteger();
 
-        q.prepare("INSERT INTO sessions(uid, subject_id, start_ts, end_ts) VALUES(?, ?, ?, ?) "
-                  "ON CONFLICT(uid) DO UPDATE SET end_ts = MAX(end_ts, excluded.end_ts)");
-        if (!run(q, {uid, subject, s["start"].toInteger(), s["end"].toInteger()})) return false;
+        q.prepare("SELECT id, edit_ts FROM sessions WHERE uid = ?");
+        if (!run(q, {uid})) return false;
+        if (!q.next()) {
+            q.prepare("INSERT INTO sessions(uid, subject_id, start_ts, end_ts, edit_ts) "
+                      "VALUES(?, ?, ?, ?, ?)");
+            if (!run(q, {uid, subject, start, end, editTs})) return false;
+            continue;
+        }
+        const int id = q.value(0).toInt();
+        const qint64 localEditTs = q.value(1).toLongLong();
+        if (localEditTs == editTs) {
+            q.prepare("UPDATE sessions SET end_ts = MAX(end_ts, ?) WHERE id = ?");
+            if (!run(q, {end, id})) return false;
+        } else if (takeIncoming(localEditTs, editTs)) {
+            q.prepare("UPDATE sessions SET subject_id = ?, start_ts = ?, end_ts = ?, edit_ts = ? "
+                      "WHERE id = ?");
+            if (!run(q, {subject, start, end, editTs, id})) return false;
+        }
     }
 
     for (const QJsonValue& value : snapshot["todos"].toArray()) {
@@ -405,29 +490,38 @@ static bool mergeRows(const QJsonObject& snapshot,
         const QVariant deadline =
             deadlineOrNull(QDate::fromString(t["deadline"].toString(), Qt::ISODate));
         const qint64 deadlineTs = t["deadline_ts"].toInteger();
-        QVariant done = t["done"].isNull() ? QVariant() : QVariant(t["done"].toInteger());
+        const auto timeOrNull = [](const QJsonValue& v) {
+            return v.isNull() || v.isUndefined() ? QVariant() : QVariant(v.toInteger());
+        };
+        QVariant done = timeOrNull(t["done"]);
+        QVariant deleted = timeOrNull(t["deleted"]);
 
-        q.prepare("SELECT id, done_ts, subject_ts, deadline_ts FROM todos WHERE uid = ?");
+        q.prepare("SELECT id, done_ts, subject_ts, deadline_ts, deleted_ts FROM todos WHERE uid = ?");
         if (!run(q, {uid})) return false;
         if (!q.next()) {
             q.prepare("INSERT INTO todos(uid, text, created_ts, done_ts, subject_id, subject_ts, "
-                      "deadline, deadline_ts) VALUES(?, ?, ?, ?, ?, ?, ?, ?)");
+                      "deadline, deadline_ts, deleted_ts) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)");
             if (!run(q, {uid, t["text"].toString(), t["created"].toInteger(), done, subject,
-                         subjectTs, deadline, deadlineTs}))
+                         subjectTs, deadline, deadlineTs, deleted}))
                 return false;
             continue;
         }
 
         const int id = q.value(0).toInt();
         const QVariant localDone = q.value(1);
+        const QVariant localDeleted = q.value(4);
         const bool newerSubject = takeIncoming(q.value(2).toLongLong(), subjectTs);
         const bool newerDeadline = takeIncoming(q.value(3).toLongLong(), deadlineTs);
         // Zadanie odhaczone na którymkolwiek urządzeniu jest odhaczone na obu.
         if (done.isNull() || (!localDone.isNull() && localDone.toLongLong() < done.toLongLong()))
             done = localDone;
+        // Tak samo z usunięciem.
+        if (deleted.isNull()
+            || (!localDeleted.isNull() && localDeleted.toLongLong() < deleted.toLongLong()))
+            deleted = localDeleted;
 
-        q.prepare("UPDATE todos SET done_ts = ? WHERE id = ?");
-        if (!run(q, {done, id})) return false;
+        q.prepare("UPDATE todos SET done_ts = ?, deleted_ts = ? WHERE id = ?");
+        if (!run(q, {done, deleted, id})) return false;
         if (newerSubject) {
             q.prepare("UPDATE todos SET subject_id = ?, subject_ts = ? WHERE id = ?");
             if (!run(q, {subject, subjectTs, id})) return false;

@@ -892,7 +892,7 @@ QColor TrackerWindow::pickColor(const QColor& initial, const QString& title) {
 }
 
 // Zwraca nieprawidłową datę, gdy wybór został anulowany.
-QDate TrackerWindow::pickDate(const QDate& initial, const QString& title) {
+std::optional<QDate> TrackerWindow::pickDate(const QDate& initial, const QString& title) {
     auto* calendar = new QCalendarWidget;
     // Nazwy miesięcy i dni po angielsku, jak reszta programu.
     calendar->setLocale(QLocale::English);
@@ -908,7 +908,11 @@ QDate TrackerWindow::pickDate(const QDate& initial, const QString& title) {
         QDate chosen = calendar->selectedDate();
         connect(calendar, &QCalendarWidget::selectionChanged, this,
                 [&chosen, calendar] { chosen = calendar->selectedDate(); });
-        return runSheet(title, calendar, {"Cancel", "OK"}) == 1 ? chosen : QDate();
+        switch (runSheet(title, calendar, {"Cancel", "No deadline", "OK"})) {
+            case 1: return QDate();
+            case 2: return chosen;
+            default: return std::nullopt;
+        }
     }
 
     QDialog dialog(this);
@@ -920,7 +924,15 @@ QDate TrackerWindow::pickDate(const QDate& initial, const QString& title) {
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(calendar, &QCalendarWidget::activated, &dialog, &QDialog::accept);
-    return dialog.exec() == QDialog::Accepted ? calendar->selectedDate() : QDate();
+    // Osobny wynik okna, żeby odróżnić "bez terminu" od anulowania.
+    const int noDeadline = QDialog::Accepted + 1;
+    connect(buttons->addButton("No deadline", QDialogButtonBox::ResetRole), &QPushButton::clicked,
+            &dialog, [&dialog, noDeadline] { dialog.done(noDeadline); });
+    switch (dialog.exec()) {
+        case QDialog::Accepted: return calendar->selectedDate();
+        case noDeadline: return QDate();
+        default: return std::nullopt;
+    }
 }
 
 // Na telefonie pytania są panelem wewnątrz głównego okna: osobne okna dialogowe Qt
@@ -1062,9 +1074,11 @@ void TrackerWindow::addTodoFromInput() {
 
     // Termin wybrany wczoraj i niewykorzystany nie może trafić do nowego zadania.
     const QDate today = QDate::currentDate();
-    addTodo(text, todoSubject->currentData().toInt(), std::max(newTodoDeadline, today));
+    addTodo(text, todoSubject->currentData().toInt(),
+            newTodoWithoutDeadline ? QDate() : std::max(newTodoDeadline, today));
     todoInput->clear();
     newTodoDeadline = {};
+    newTodoWithoutDeadline = false;
     updateDeadlineButton();
     refreshTodos();
 }
@@ -1073,9 +1087,11 @@ void TrackerWindow::pickDeadline() {
     const QDate today = QDate::currentDate();
     const QList<QListWidgetItem*> checked = checkedTodos();
     if (checked.isEmpty()) {
-        const QDate chosen = pickDate(std::max(newTodoDeadline, today), "Deadline of the new task");
-        if (!chosen.isValid()) return;
-        newTodoDeadline = chosen == today ? QDate() : chosen;
+        const std::optional<QDate> chosen =
+            pickDate(std::max(newTodoDeadline, today), "Deadline of the new task");
+        if (!chosen) return;
+        newTodoWithoutDeadline = !chosen->isValid();
+        newTodoDeadline = *chosen == today ? QDate() : *chosen;
         updateDeadlineButton();
         return;
     }
@@ -1084,14 +1100,14 @@ void TrackerWindow::pickDeadline() {
     const QDate current = checked.first()->data(TodoDeadlineRole).toDate();
     const QString title = checked.size() == 1 ? "Deadline: " + checked.first()->text()
                                               : QString("Deadline of %1 tasks").arg(checked.size());
-    const QDate chosen = pickDate(std::max(current, today), title);
-    if (!chosen.isValid()) return;
+    const std::optional<QDate> chosen = pickDate(std::max(current, today), title);
+    if (!chosen) return;
 
     // Zaznaczenie znika, żeby przesunięte zadania nie zostały przypadkiem rozwiązane.
     {
         const QSignalBlocker blocker(todoList);
         for (QListWidgetItem* item : checked) {
-            setTodoDeadline(item->data(TodoIdRole).toInt(), chosen);
+            setTodoDeadline(item->data(TodoIdRole).toInt(), *chosen);
             item->setCheckState(Qt::Unchecked);
         }
     }
@@ -1117,7 +1133,9 @@ void TrackerWindow::updateDeadlineButton() {
     deadlineBtn->setToolTip("Deadline of the new task");
 
     const QDate today = QDate::currentDate();
-    if (newTodoDeadline <= today)
+    if (newTodoWithoutDeadline)
+        deadlineBtn->setText("No deadline");
+    else if (newTodoDeadline <= today)
         deadlineBtn->setText("Due today");
     else
         deadlineBtn->setText(newTodoDeadline.toString(
@@ -1170,6 +1188,9 @@ void TrackerWindow::solveCheckedTodos() {
     }
     updateSolveButton();
     solveAnimation->start();
+    // Odhaczone zadania od razu pojawiają się przy słupkach.
+    if (!dashboard->isHidden())
+        chart->reload();
 }
 
 void TrackerWindow::removeSolvedTodos() {
@@ -1193,6 +1214,7 @@ void TrackerWindow::showTodoMenu(const QPoint& pos) {
 
     QMenu menu(this);
     const QAction* changeDeadline = menu.addAction("Change deadline…");
+    const QAction* remove = menu.addAction("Delete task…");
     menu.addSeparator();
     // Te same pozycje co przy dodawaniu zadania.
     for (int i = 0; i < todoSubject->count(); ++i) {
@@ -1203,11 +1225,14 @@ void TrackerWindow::showTodoMenu(const QPoint& pos) {
     const QAction* chosen = menu.exec(todoList->viewport()->mapToGlobal(pos));
     if (!chosen) return;
 
-    if (chosen == changeDeadline) {
-        const QDate picked =
+    if (chosen == remove) {
+        if (!askYesNo("Delete task", "Delete \"" + item->text() + "\"?")) return;
+        deleteTodo(todoId);
+    } else if (chosen == changeDeadline) {
+        const std::optional<QDate> picked =
             pickDate(std::max(deadline, QDate::currentDate()), "Deadline: " + item->text());
-        if (!picked.isValid()) return;
-        setTodoDeadline(todoId, picked);
+        if (!picked) return;
+        setTodoDeadline(todoId, *picked);
     } else {
         setTodoSubject(todoId, chosen->data().toInt());
     }

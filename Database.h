@@ -30,6 +30,16 @@ struct Todo {
     QDate deadline;
 };
 
+// Zadanie odhaczone w trakcie nauki albo tuż po niej, przypisane do tej nauki.
+struct DoneTodo {
+    QString text;
+    // Przedmiot nauki, do której zadanie się liczy.
+    int subjectId;
+    qint64 done;
+    // Chwila w obrębie tej nauki i pytanego przedziału; wyznacza dzień, do którego się liczy.
+    qint64 at;
+};
+
 QString databasePath();
 bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
@@ -49,11 +59,21 @@ void addTodo(const QString& text, int subjectId, const QDate& deadline);
 void setTodoSubject(int id, int subjectId);
 void setTodoDeadline(int id, const QDate& deadline);
 void completeTodo(int id);
+// Usunięte zadanie zostaje w bazie z czasem usunięcia, żeby synchronizacja go nie przywróciła.
+void deleteTodo(int id);
+// Zadania odhaczone w trakcie odcinka nauki albo najwyżej kTodoAfterSession sekund po nim,
+// przypisane do odcinków nachodzących na [from, to). Zadanie z przedmiotem liczy się tylko do
+// nauki tego przedmiotu; zadanie bez przedmiotu do ostatniej nauki przed nim.
+constexpr qint64 kTodoAfterSession = 30 * 60;
+// Zadania odhaczone przed wprowadzeniem tej funkcji (27.10.2026 13:22) się nie liczą.
+constexpr qint64 kTodosCountFrom = 1793103771;
+QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to);
 
 // Cała baza w postaci, którą druga strona synchronizacji potrafi scalić ze swoją.
 QJsonObject exportSnapshot();
-// Scalanie dopisuje brakujące wiersze i niczego nie usuwa. Gdy to samo pole zmieniono na
-// obu urządzeniach od ostatniej synchronizacji, wygrywa komputer.
+// Scalanie dopisuje brakujące wiersze i niczego nie usuwa (usunięty odcinek nauki to odcinek
+// skrócony do zera). Gdy to samo pole zmieniono na obu urządzeniach od ostatniej
+// synchronizacji, wygrywa komputer.
 enum class MergeResult { Failed, Unchanged, Changed };
 // Na komputerze: zmiana z telefonu wygrywa, gdy jest nowsza, a komputer nie zmieniał tego
 // pola od lastSync (czas komputera z poprzedniej synchronizacji z tym telefonem).

@@ -36,12 +36,21 @@ private:
     QRectF plotRect() const;
     QList<QPointF> legendPositions() const;
     QString title() const;
+    // Wiersz pod tytułem; zajmuje miejsce tylko w widoku tygodnia.
+    qreal summaryHeight() const;
+    void drawWeekSummary(QPainter& p) const;
+    // Kolejność słupków przedmiotów: w tygodniu od najdłuższej nauki.
+    QList<const SubjectTotal*> barOrder() const;
     qint64 maxValue() const;
     qint64 axisStep() const;
     qint64 axisTop() const;
     qreal xForTime(qint64 t, const QRectF& plot) const;
     qint64 cumulativeAt(int subjectId, qint64 t) const;
     QList<const SubjectTotal*> subjectsByDayTime(int day) const;
+    // Zadania wykonane przy nauce przedmiotu (-1: wszystkich) danego dnia tygodnia (-1: całego okresu).
+    QList<const DoneTodo*> doneTodosFor(int subjectId, int day) const;
+    QString doneTodosHtml(const QList<const DoneTodo*>& todos) const;
+    void drawTodoBadge(QPainter& p, const QPointF& bottomCenter, int count, const QColor& color) const;
 
     void drawLegend(QPainter& p) const;
     void drawValueAxis(QPainter& p, const QRectF& plot) const;
@@ -64,6 +73,7 @@ private:
     QHash<int, qint64> totals;
     // Sumy na przedmiot osobno dla każdego dnia tygodnia; puste w widoku dnia.
     QList<QHash<int, qint64>> dayTotals;
+    QList<DoneTodo> doneTodos;
     qint64 rangeStart = 0;
     qint64 rangeEnd = 1;
     // Linie kończą się na "teraz", a nie na końcu dnia/tygodnia.

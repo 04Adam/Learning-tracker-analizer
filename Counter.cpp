@@ -41,7 +41,8 @@ void Counter::checkpoint() {
     if (currentState != State::Running) return;
 
     QSqlQuery q;
-    q.prepare("UPDATE sessions SET end_ts = ? WHERE id = ?");
+    // Odcinka poprawionego ręcznie (np. na drugim urządzeniu) stoper już nie wydłuża.
+    q.prepare("UPDATE sessions SET end_ts = ? WHERE id = ? AND edit_ts = 0");
     q.addBindValue(toTs(system_clock::now()));
     q.addBindValue(segmentRowId);
 

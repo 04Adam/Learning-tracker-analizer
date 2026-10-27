@@ -325,6 +325,18 @@ public final class SyncClient {
 
         DirectDatabase(SQLiteDatabase db) {
             this.db = db;
+            // Baza mogła jeszcze nie przejść migracji z Database.cpp, jeśli po aktualizacji
+            // aplikacja nie była otwierana, a synchronizacja ruszyła w tle.
+            addColumnIfMissing("sessions", "edit_ts", "INTEGER NOT NULL DEFAULT 0");
+            addColumnIfMissing("todos", "deleted_ts", "INTEGER");
+        }
+
+        private void addColumnIfMissing(String table, String column, String definition) {
+            try (Cursor c = db.rawQuery("PRAGMA table_info(" + table + ")", null)) {
+                while (c.moveToNext())
+                    if (column.equals(c.getString(1))) return;
+            }
+            db.execSQL("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
         }
 
         @Override
@@ -345,19 +357,20 @@ public final class SyncClient {
                 }
             }
             final JSONArray sessions = new JSONArray();
-            try (Cursor c = db.rawQuery("SELECT se.uid, s.name, se.start_ts, se.end_ts "
+            try (Cursor c = db.rawQuery("SELECT se.uid, s.name, se.start_ts, se.end_ts, se.edit_ts "
                     + "FROM sessions se JOIN subjects s ON s.id = se.subject_id", null)) {
                 while (c.moveToNext()) {
                     sessions.put(new JSONObject()
                             .put("uid", c.getString(0))
                             .put("subject", c.getString(1))
                             .put("start", c.getLong(2))
-                            .put("end", c.getLong(3)));
+                            .put("end", c.getLong(3))
+                            .put("edit_ts", c.getLong(4)));
                 }
             }
             final JSONArray todos = new JSONArray();
             try (Cursor c = db.rawQuery("SELECT t.uid, t.text, t.created_ts, t.done_ts, s.name, "
-                    + "t.subject_ts, t.deadline, t.deadline_ts "
+                    + "t.subject_ts, t.deadline, t.deadline_ts, t.deleted_ts "
                     + "FROM todos t LEFT JOIN subjects s ON s.id = t.subject_id", null)) {
                 while (c.moveToNext()) {
                     todos.put(new JSONObject()
@@ -368,7 +381,8 @@ public final class SyncClient {
                             .put("subject", c.isNull(4) ? JSONObject.NULL : c.getString(4))
                             .put("subject_ts", c.getLong(5))
                             .put("deadline", c.isNull(6) ? JSONObject.NULL : c.getString(6))
-                            .put("deadline_ts", c.getLong(7)));
+                            .put("deadline_ts", c.getLong(7))
+                            .put("deleted", c.isNull(8) ? JSONObject.NULL : c.getLong(8)));
                 }
             }
             return new JSONObject().put("subjects", subjects).put("sessions", sessions)
@@ -428,10 +442,18 @@ public final class SyncClient {
                 final Long subject = subjectIds.get(
                         s.optString("subject").trim().toLowerCase(Locale.ROOT));
                 if (uid.isEmpty() || subject == null) continue;
-                db.execSQL("INSERT INTO sessions(uid, subject_id, start_ts, end_ts) "
-                        + "VALUES(?, ?, ?, ?) "
-                        + "ON CONFLICT(uid) DO UPDATE SET end_ts = MAX(end_ts, excluded.end_ts)",
-                        new Object[] {uid, subject, s.optLong("start"), s.optLong("end")});
+                // Ręczna poprawka z komputera zastępuje cały odcinek; bez niej rośnie koniec.
+                db.execSQL("INSERT INTO sessions(uid, subject_id, start_ts, end_ts, edit_ts) "
+                        + "VALUES(?, ?, ?, ?, ?) ON CONFLICT(uid) DO UPDATE SET "
+                        + "subject_id = CASE WHEN edit_ts = excluded.edit_ts THEN subject_id "
+                        + "ELSE excluded.subject_id END, "
+                        + "start_ts = CASE WHEN edit_ts = excluded.edit_ts THEN start_ts "
+                        + "ELSE excluded.start_ts END, "
+                        + "end_ts = CASE WHEN edit_ts = excluded.edit_ts "
+                        + "THEN MAX(end_ts, excluded.end_ts) ELSE excluded.end_ts END, "
+                        + "edit_ts = excluded.edit_ts",
+                        new Object[] {uid, subject, s.optLong("start"), s.optLong("end"),
+                                      s.optLong("edit_ts")});
             }
 
             final JSONArray todos = snapshot.optJSONArray("todos");
@@ -447,28 +469,35 @@ public final class SyncClient {
                         deadlineText.matches("\\d{4}-\\d{2}-\\d{2}") ? deadlineText : null;
                 final long deadlineTs = t.optLong("deadline_ts");
                 Long done = t.isNull("done") ? null : t.optLong("done");
+                // Starszy komputer nie wysyła tego pola wcale.
+                Long deleted = !t.has("deleted") || t.isNull("deleted") ? null : t.optLong("deleted");
 
                 Long id = null;
                 Long localDone = null;
-                try (Cursor c = db.rawQuery("SELECT id, done_ts FROM todos WHERE uid = ?",
+                Long localDeleted = null;
+                try (Cursor c = db.rawQuery("SELECT id, done_ts, deleted_ts FROM todos WHERE uid = ?",
                         new String[] {uid})) {
                     if (c.moveToNext()) {
                         id = c.getLong(0);
                         localDone = c.isNull(1) ? null : c.getLong(1);
+                        localDeleted = c.isNull(2) ? null : c.getLong(2);
                     }
                 }
                 if (id == null) {
                     db.execSQL("INSERT INTO todos(uid, text, created_ts, done_ts, subject_id, "
-                            + "subject_ts, deadline, deadline_ts) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                            + "subject_ts, deadline, deadline_ts, deleted_ts) "
+                            + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             new Object[] {uid, t.optString("text"), t.optLong("created"), done,
-                                          subject, subjectTs, deadline, deadlineTs});
+                                          subject, subjectTs, deadline, deadlineTs, deleted});
                     continue;
                 }
-                // Zadanie odhaczone na którymkolwiek urządzeniu jest odhaczone na obu.
+                // Zadanie odhaczone albo usunięte na którymkolwiek urządzeniu jest takie na obu.
                 if (done == null || (localDone != null && localDone < done)) done = localDone;
-                db.execSQL("UPDATE todos SET done_ts = ?, subject_id = ?, subject_ts = ?, "
-                        + "deadline = ?, deadline_ts = ? WHERE id = ?",
-                        new Object[] {done, subject, subjectTs, deadline, deadlineTs, id});
+                if (deleted == null || (localDeleted != null && localDeleted < deleted))
+                    deleted = localDeleted;
+                db.execSQL("UPDATE todos SET done_ts = ?, deleted_ts = ?, subject_id = ?, "
+                        + "subject_ts = ?, deadline = ?, deadline_ts = ? WHERE id = ?",
+                        new Object[] {done, deleted, subject, subjectTs, deadline, deadlineTs, id});
             }
         }
     }
