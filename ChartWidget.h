@@ -8,21 +8,21 @@
 #include <QHash>
 #include <QWidget>
 
-// Wykres czasu nauki: słupki z sumą na przedmiot, linie narastające w czasie
-// albo słupek złożony z przedmiotów dla każdego dnia tygodnia.
+// Study time chart: bars with the total per subject, lines accumulating over time,
+// or a stacked bar of subjects for each day of the week.
 class ChartWidget : public QWidget {
 public:
     enum class Range { Today, Week };
-    // Daily ma sens tylko dla tygodnia.
+    // Daily only makes sense for a week.
     enum class Mode { Totals, Cumulative, Daily };
 
     explicit ChartWidget(QWidget* parent = nullptr);
 
-    // Nieprawidłowa data oznacza bieżący dzień albo tydzień.
+    // An invalid date means the current day or week.
     void setView(Range newRange, Mode newMode, QDate newDate = {});
-    // -1 pokazuje wszystkie przedmioty.
+    // -1 shows all subjects.
     void setSubject(int subjectId);
-    // Szczegóły pod palcem rysowane na samym wykresie zamiast w osobnym dymku.
+    // Details under the finger drawn on the chart itself instead of in a separate tooltip.
     void setInlineDetails(bool enabled);
     void reload();
 
@@ -36,10 +36,10 @@ private:
     QRectF plotRect() const;
     QList<QPointF> legendPositions() const;
     QString title() const;
-    // Wiersz pod tytułem; zajmuje miejsce tylko w widoku tygodnia.
+    // Row below the title; takes up space only in the week view.
     qreal summaryHeight() const;
     void drawWeekSummary(QPainter& p) const;
-    // Kolejność słupków przedmiotów: w tygodniu od najdłuższej nauki.
+    // Order of subject bars: in a week, longest study first.
     QList<const SubjectTotal*> barOrder() const;
     qint64 maxValue() const;
     qint64 axisStep() const;
@@ -47,7 +47,7 @@ private:
     qreal xForTime(qint64 t, const QRectF& plot) const;
     qint64 cumulativeAt(int subjectId, qint64 t) const;
     QList<const SubjectTotal*> subjectsByDayTime(int day) const;
-    // Zadania wykonane przy nauce przedmiotu (-1: wszystkich) danego dnia tygodnia (-1: całego okresu).
+    // Tasks done while studying a subject (-1: all) on a given weekday (-1: the whole period).
     QList<const DoneTodo*> doneTodosFor(int subjectId, int day) const;
     QString doneTodosHtml(const QList<const DoneTodo*>& todos) const;
     void drawTodoBadge(QPainter& p, const QPointF& bottomCenter, int count, const QColor& color) const;
@@ -63,24 +63,24 @@ private:
     Range range = Range::Today;
     Mode mode = Mode::Totals;
     QDate date;
-    // Pierwszy dzień pokazywanego okresu.
+    // First day of the displayed period.
     QDate firstDate;
-    // Jedyny pokazywany przedmiot; -1, gdy pokazywane są wszystkie.
+    // The only displayed subject; -1 when all are displayed.
     int subjectFilter = -1;
 
     QList<SubjectTotal> subjects;
     QList<Session> sessions;
     QHash<int, qint64> totals;
-    // Sumy na przedmiot osobno dla każdego dnia tygodnia; puste w widoku dnia.
+    // Per-subject totals for each day of the week; empty in the day view.
     QList<QHash<int, qint64>> dayTotals;
     QList<DoneTodo> doneTodos;
     qint64 rangeStart = 0;
     qint64 rangeEnd = 1;
-    // Linie kończą się na "teraz", a nie na końcu dnia/tygodnia.
+    // Lines end at "now", not at the end of the day/week.
     qint64 lineEnd = 0;
     qint64 hoverTime = -1;
     bool inlineDetails = false;
-    // Treść i miejsce szczegółów rysowanych na wykresie; pusta, gdy nic nie pokazujemy.
+    // Content and position of the details drawn on the chart; empty when nothing is shown.
     QString detailsText;
     QPointF detailsPos;
 };

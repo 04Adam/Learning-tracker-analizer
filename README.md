@@ -19,12 +19,12 @@
 
 ## Features
 
-**⏱ Stopwatch per subject**
+**Stopwatch per subject**
 - A small always-handy window with Start / Pause / Resume / Stop.
 - Expand it into a full dashboard to switch subjects, add new ones and pick their colors.
 - Progress is checkpointed continuously, so a crash or power loss never loses a session.
 
-**📊 Charts**
+**Charts**
 - **Today** and **This week** views — click a view again to cycle through chart types:
   - *Totals* — one bar per subject,
   - *Cumulative* — lines showing how study time built up over the day/week,
@@ -33,18 +33,18 @@
 - Filter charts to a single subject; hover (or tap on the phone) for details.
 - Tasks you complete while studying appear on the charts as badges.
 
-**✅ Tasks**
+**Tasks**
 - To-do list with optional subject and deadline, sorted by the nearest due date.
 - Tick tasks off with a small animation; a task finished during a study session
   (or up to 30 minutes after it) is credited to that session.
 - Right-click (or long-press on Android) to change the deadline or delete a task.
 
-**📱 Android app**
+**Android app**
 - Same app, phone-friendly layout with tabs.
 - Ongoing notification with the running timer and Pause / Stop buttons, so it keeps
   counting while the app is in the background.
 
-**🔄 Phone ↔ computer sync**
+**Phone ↔ computer sync**
 - No cloud, no account — devices talk directly over the same Wi-Fi network.
 - The phone finds the computer automatically (UDP broadcast) and syncs in the background
   every ~15 minutes and whenever the network changes.
@@ -53,7 +53,7 @@
 - Merging is additive — nothing is lost. If the same field was edited on both devices,
   the computer wins.
 
-**🖥 Desktop integration (Linux)**
+**Desktop integration (Linux)**
 - `cmake --install` adds a launcher entry and icon to your application menu.
 - The installed app enables autostart (minimized) so your phone always has something to
   sync with — toggle it in *Sync with phone…*.

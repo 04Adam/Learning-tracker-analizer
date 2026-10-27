@@ -8,8 +8,8 @@
 #include <QNetworkInterface>
 #include <QRandomGenerator>
 
-// Kod parowania: 20 znaków z alfabetu Crockforda (bez I, L, O i U, które łatwo pomylić),
-// czyli 100 losowych bitów. Tyle wystarcza, żeby klucza nie dało się odgadnąć.
+// Pairing code: 20 characters from Crockford's alphabet (no I, L, O or U, which are easy to confuse),
+// i.e. 100 random bits. That is enough to make the key impossible to guess.
 static const char kAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 static const int kCodeLength = 20;
 
@@ -17,7 +17,7 @@ QString normalizePairingCode(const QString& code) {
     QString result;
     for (QChar c : code.toUpper()) {
         if (c == '-' || c.isSpace()) continue;
-        // Pomyłki przy przepisywaniu, które alfabet Crockforda wybacza.
+        // Typing mistakes that Crockford's alphabet forgives.
         if (c == 'O') c = '0';
         if (c == 'I' || c == 'L') c = '1';
         if (!QByteArray(kAlphabet).contains(c.toLatin1())) return {};
@@ -41,7 +41,7 @@ QStringList syncAddresses() {
         if (!flags.testFlag(QNetworkInterface::IsRunning)
             || flags.testFlag(QNetworkInterface::IsLoopBack))
             continue;
-        // Wewnętrzne sieci Dockera nie są widoczne z telefonu.
+        // Docker's internal networks are not visible from the phone.
         const QString name = iface.name();
         if (name.startsWith("docker") || name.startsWith("br-") || name.startsWith("veth"))
             continue;
@@ -56,7 +56,7 @@ QStringList syncAddresses() {
 #ifndef Q_OS_ANDROID
 
 // ---------------------------------------------------------------------------------------------
-// Komputer (i układ telefonu uruchomiony na komputerze z --mobile, do testów).
+// Computer (and the phone layout run on the computer with --mobile, for testing).
 
 #include <QDateTime>
 #include <QDebug>
@@ -76,10 +76,10 @@ QStringList syncAddresses() {
 
 static const quint16 kDefaultPort = 47815;
 static const int kTimeoutMs = 15000;
-// Komputer w tej samej sieci odpowiada w milisekundach.
+// A computer on the same network responds within milliseconds.
 static const int kFindTimeoutMs = 1500;
 static const int kConnectTimeoutMs = 3000;
-// Cała baza to najwyżej kilka megabajtów; większa wiadomość nie jest od naszej aplikacji.
+// The whole database is a few megabytes at most; a larger message is not from our app.
 static const qint64 kMaxMessage = 64 * 1024 * 1024;
 
 static QSettings settings() {
@@ -95,7 +95,7 @@ void setSyncSetting(const QString& key, const QVariant& value) {
     settings().setValue(key, value);
 }
 
-// Ukryte ustawienie do testów, gdy na tym samym komputerze działa już inny egzemplarz.
+// Hidden setting for testing when another instance is already running on the same computer.
 static quint16 syncPort() {
     const int port = syncSetting("port").toInt();
     return port > 0 && port < 65536 ? quint16(port) : kDefaultPort;
@@ -111,7 +111,7 @@ QString pairingCode() {
     return formatPairingCode(code);
 }
 
-// Klucz szyfrujący i identyfikator do wyszukiwania komputera; ten sam wzór jest w SyncClient.java.
+// Encryption key and identifier for discovering the computer; the same formula is in SyncClient.java.
 static QByteArray keyFor(const QString& normalizedCode) {
     return QCryptographicHash::hash("StudyTracker sync key v2\n" + normalizedCode.toUtf8(),
                                     QCryptographicHash::Sha256);
@@ -128,9 +128,9 @@ static QString randomHex(int bytes) {
     return data.toHex();
 }
 
-// Jedna wiadomość to jeden wiersz w base64: 12 bajtów jednorazowej liczby, zaszyfrowany JSON
-// i 16 bajtów podpisu (AES-256-GCM). role mówi, kto wysłał wiadomość, więc odbitej z powrotem
-// do nadawcy wiadomości nie da się wziąć za odpowiedź.
+// One message is one base64 line: a 12-byte nonce, the encrypted JSON
+// and a 16-byte tag (AES-256-GCM). role says who sent the message, so a message reflected back
+// to its sender cannot be mistaken for a reply.
 static QByteArray seal(const QByteArray& key, const QByteArray& role, const QJsonObject& message) {
     const QByteArray plain = QJsonDocument(message).toJson(QJsonDocument::Compact);
     QByteArray nonce(12, 0);
@@ -174,7 +174,7 @@ static std::optional<QJsonObject> unseal(const QByteArray& key, const QByteArray
         || !EVP_DecryptUpdate(ctx.get(), reinterpret_cast<unsigned char*>(plain.data()), &length,
                               u(cipher), int(cipher.size()))
         || !EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, 16, tag.data())
-        // Tu wychodzi na jaw zły klucz albo zmieniona po drodze wiadomość.
+        // This is where a wrong key or a message tampered with in transit shows up.
         || EVP_DecryptFinal_ex(ctx.get(), nullptr, &length) <= 0)
         return std::nullopt;
 
@@ -186,7 +186,7 @@ static std::optional<QJsonObject> unseal(const QByteArray& key, const QByteArray
 
 static const QByteArray kPhone = "phone";
 static const QByteArray kComputer = "computer";
-// Odpowiedź bez szyfrowania na wiadomość, której nie da się odczytać kluczem komputera.
+// Unencrypted reply to a message that cannot be read with the computer's key.
 static const QByteArray kWrongCode = "{\"error\":\"pairing\"}\n";
 
 bool startSyncServer(QObject* parent, std::function<void()> merged) {
@@ -210,9 +210,9 @@ bool startSyncServer(QObject* parent, std::function<void()> merged) {
                     socket->disconnectFromHost();
                     return;
                 }
-                // Telefon sprawdza, że odpowiedź jest na jego pytanie, a nie nagrana wcześniej.
+                // The phone checks that the reply answers its request and is not a replay.
                 QJsonObject reply{{"answer", (*request)["challenge"].toString()}};
-                // Czas komputera, który telefon odeśle przy następnej synchronizacji.
+                // The computer's time, which the phone sends back on the next sync.
                 const qint64 now = QDateTime::currentSecsSinceEpoch();
                 const MergeResult result = mergeFromPhone((*request)["data"].toObject(),
                                                           (*request)["since"].toInteger());
@@ -231,7 +231,7 @@ bool startSyncServer(QObject* parent, std::function<void()> merged) {
     });
     if (!server->listen(QHostAddress::Any, port)) return false;
 
-    // Pytania o adres przychodzą przez UDP na ten sam numer portu.
+    // Address queries arrive over UDP on the same port number.
     auto* finder = new QUdpSocket(parent);
     const QString finderId = finderIdFor(code);
     QObject::connect(finder, &QUdpSocket::readyRead, finder, [finder, finderId] {
@@ -243,13 +243,13 @@ bool startSyncServer(QObject* parent, std::function<void()> merged) {
                                       datagram.senderPort());
         }
     });
-    // Bez tego telefon dalej może podać adres ręcznie.
+    // Without this the phone can still enter the address manually.
     if (!finder->bind(QHostAddress::AnyIPv4, port))
         qWarning() << "Sync: cannot listen for phones looking for this computer.";
     return true;
 }
 
-// found dostaje adres komputera albo pusty tekst, gdy nikt nie odpowiedział.
+// found gets the computer's address, or an empty string when nobody responded.
 static void findComputer(QObject* parent, const QString& finderId, quint16 port,
                          std::function<void(const QString& host)> found) {
     auto* socket = new QUdpSocket(parent);
@@ -276,7 +276,7 @@ static void findComputer(QObject* parent, const QString& finderId, quint16 port,
         QTimer::singleShot(0, socket, [finish] { finish({}); });
         return;
     }
-    // Niektóre sieci nie przepuszczają adresu 255.255.255.255, więc też adres każdej sieci.
+    // Some networks block 255.255.255.255, so also each network's broadcast address.
     QList<QHostAddress> targets{QHostAddress::Broadcast};
     for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
         if (!iface.flags().testFlag(QNetworkInterface::IsRunning)
@@ -294,7 +294,7 @@ static void findComputer(QObject* parent, const QString& finderId, quint16 port,
         socket->writeDatagram(question, target, port);
 }
 
-// fatal oznacza błąd, którego nie naprawi próba pod innym adresem.
+// fatal means an error that trying another address will not fix.
 using ExchangeDone = std::function<void(const QString& error, bool fatal, bool changed)>;
 
 static void exchangeWith(QObject* parent, const QString& host, quint16 port,
@@ -303,7 +303,7 @@ static void exchangeWith(QObject* parent, const QString& host, quint16 port,
     socket->setReadBufferSize(kMaxMessage);
     const QString challenge = randomHex(16);
 
-    // Zerwanie połączenia zgłasza kolejny błąd, a wynik ma być jeden.
+    // Dropping the connection reports another error, but there must be only one result.
     const auto finish = [socket, done](const QString& error, bool fatal = false,
                                        bool changed = false) {
         if (socket->property("finished").toBool()) return;
@@ -356,7 +356,7 @@ static void exchangeWith(QObject* parent, const QString& host, quint16 port,
     socket->connectToHost(host, port);
 }
 
-// Próbuje kolejnych adresów, aż któryś odpowie.
+// Tries addresses one after another until one responds.
 static void exchangeWithAny(QObject* parent, QStringList hosts, quint16 port,
                             const QByteArray& key, const QString& lastError,
                             std::function<void(const QString&, bool)> done) {
@@ -386,8 +386,8 @@ void syncNow(QObject* parent, std::function<void(const QString& error, bool chan
     }
     const QByteArray key = keyFor(code);
     const quint16 port = syncPort();
-    // Adres z routera może się zmienić, więc najpierw szukamy komputera w sieci, potem
-    // próbujemy adresu wpisanego ręcznie i tego, pod którym komputer był ostatnio.
+    // The address from the router can change, so first look for the computer on the network, then
+    // try the manually entered address and the one where the computer was last seen.
     findComputer(parent, finderIdFor(code), port, [=](const QString& found) {
         if (!found.isEmpty())
             setSyncSetting("found", found);
@@ -407,8 +407,8 @@ void onBackgroundSync(std::function<void()>) {}
 #else
 
 // ---------------------------------------------------------------------------------------------
-// Telefon z Androidem: sieć i szyfrowanie obsługuje SyncClient.java, a ten program tylko
-// zapisuje dane, gdy działa, żeby z bazą nie pracowały naraz dwie kopie SQLite.
+// Android phone: SyncClient.java handles networking and encryption, and this program only
+// writes data while it is running, so two SQLite copies never work on the database at once.
 
 #include <QCoreApplication>
 #include <QJniEnvironment>
@@ -421,7 +421,7 @@ void onBackgroundSync(std::function<void()>) {}
 #include <optional>
 
 static const char* const kClient = "org/studytracker/SyncClient";
-// Fałsz od zamykania programu: praca w tle nie może już liczyć na jego wątek.
+// False once the program is shutting down: the background job can no longer rely on its thread.
 static std::atomic<bool> qtAlive{true};
 static QList<std::function<void(const QString&, bool)>> waiting;
 static std::function<void()> backgroundChanged;
@@ -452,7 +452,7 @@ bool startSyncServer(QObject*, std::function<void()>) {
     return false;
 }
 
-// Praca na bazie musi się odbyć w wątku Qt, w którym otwarto połączenie z bazą.
+// Database work must happen in the Qt thread that opened the database connection.
 template <typename T>
 static std::optional<T> onQtThread(std::function<T()> work) {
     struct State {
@@ -484,7 +484,7 @@ static jbyteArray exportFromQt(JNIEnv* env, jclass) {
     return json ? toJava(env, *json) : nullptr;
 }
 
-// 0: błąd, 1: bez zmian, 2: dane się zmieniły.
+// 0: error, 1: no changes, 2: data changed.
 static jint mergeIntoQt(JNIEnv* env, jclass, jbyteArray json) {
     QByteArray data(env->GetArrayLength(json), 0);
     env->GetByteArrayRegion(json, 0, jsize(data.size()), reinterpret_cast<jbyte*>(data.data()));

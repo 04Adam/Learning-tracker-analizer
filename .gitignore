@@ -1,11 +1,11 @@
-# Wyniki budowania (desktop, Android, emulator)
+# Build output (desktop, Android, emulator)
 /cmake-build-*/
 
-# Klucze do podpisywania APK i lokalne ścieżki do SDK
+# APK signing keys and local SDK paths
 *.keystore
 *.jks
 local.properties
 
-# Lokalne bazy danych z nauką
+# Local study databases
 *.db
 *.sqlite

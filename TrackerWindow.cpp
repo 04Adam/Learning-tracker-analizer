@@ -50,11 +50,11 @@ static QString formatTime(qint64 seconds) {
         .arg(seconds % 60, 2, 10, QChar('0'));
 }
 
-// Nieprawidłowy kolor daje pusty kwadrat, żeby teksty w liście były wyrównane.
+// An invalid color gives an empty square so the list texts stay aligned.
 static QIcon swatchIcon(const QColor& color) {
     QPixmap swatch(12, 12);
     swatch.fill(color.isValid() ? color : Qt::transparent);
-    // Bez wariantu Selected Qt przyciemnia kolor zaznaczonego wiersza.
+    // Without the Selected variant Qt darkens the color of the selected row.
     QIcon icon(swatch);
     icon.addPixmap(swatch, QIcon::Selected);
     return icon;
@@ -63,7 +63,7 @@ static QIcon swatchIcon(const QColor& color) {
 static const char* const kSubjectColors[] = {"#d93f4c", "#2fb37a", "#3b8fe6", "#c99a16", "#a06be0",
                                              "#e07a3f", "#3fb8c4", "#d65fa8", "#8fb33a", "#8a8d93"};
 
-// Pierwszy odcień, którego nie ma jeszcze żaden przedmiot.
+// The first hue not yet used by any subject.
 static QColor suggestedSubjectColor(const QList<SubjectTotal>& subjects) {
     for (const char* color : kSubjectColors) {
         const bool used = std::any_of(subjects.begin(), subjects.end(),
@@ -77,7 +77,7 @@ enum TodoRole {
     TodoIdRole = Qt::UserRole,
     TodoColorRole,
     TodoDeadlineRole,
-    // Zadanie już rozwiązane, czeka tylko na koniec animacji znikania.
+    // Task already solved, just waiting for the fade-out animation to end.
     TodoSolvingRole,
 };
 
@@ -86,7 +86,7 @@ struct DaysLeft {
     QColor color;
 };
 
-// Ile dni zostało do terminu i jak bardzo to pilne; pusty tekst, gdy zadanie nie ma terminu.
+// How many days are left until the due date and how urgent it is; empty when the task has no due date.
 static DaysLeft daysLeft(const QDate& deadline) {
     if (!deadline.isValid()) return {};
 
@@ -98,8 +98,8 @@ static DaysLeft daysLeft(const QDate& deadline) {
     return {QString(days == 1 ? "%1 day" : "%1 days").arg(days), color};
 }
 
-// Dopisuje po prawej stronie zadania, ile dni zostało do terminu, a na rozwiązywanych
-// zadaniach rysuje pasek w kolorze przedmiotu, rosnący od lewej.
+// Adds the days left until the due date on the right side of a task, and on tasks being solved
+// draws a bar in the subject's color, growing from the left.
 class TodoDelegate : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -107,7 +107,7 @@ public:
     double progress = 0;
 
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
-        // Tekst zadania zawija się przed licznikiem dni, a nie pod nim.
+        // The task text wraps before the day counter, not under it.
         const int counter = counterWidth(option, index);
         QStyleOptionViewItem textOption = option;
         if (textOption.rect.width() > counter)
@@ -161,8 +161,8 @@ private:
     }
 };
 
-// Na telefonie rozwijana lista otwiera się jako panel w głównym oknie, a nie osobne okno:
-// osobne okno potrafi wywrócić Qt na Androidzie i wjeżdża pod pasek stanu.
+// On the phone a drop-down list opens as a panel in the main window, not a separate window:
+// a separate window can crash Qt on Android and slides under the status bar.
 class SheetComboBox : public QComboBox {
 public:
     using QComboBox::QComboBox;
@@ -177,7 +177,7 @@ public:
     }
 };
 
-// Dzień: słupki ↔ linie; tydzień ma jeszcze trzeci wykres ze słupkami dla każdego dnia.
+// Day: bars ↔ lines; the week also has a third chart with bars for each day.
 static ChartWidget::Mode nextMode(ChartWidget::Mode mode, ChartWidget::Range range) {
     switch (mode) {
         case ChartWidget::Mode::Totals:
@@ -193,7 +193,7 @@ static ChartWidget::Mode nextMode(ChartWidget::Mode mode, ChartWidget::Range ran
 
 TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
     if (!mobile)
-        // Bez Qt::Tool okno ma wpis na pasku zadań, z którego da się je przywrócić po zminimalizowaniu.
+        // Without Qt::Tool the window gets a taskbar entry it can be restored from after minimizing.
         setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
     setObjectName("tracker");
     setAttribute(Qt::WA_StyledBackground);
@@ -207,7 +207,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
         "#todoList::indicator { width: 12px; height: 12px; border: 1px solid white;"
         " border-radius: 2px; }"
         "#todoList::indicator:checked { background: white; }";
-    // Na telefonie wszystko, w co się trafia palcem, musi być wyraźnie większe.
+    // On the phone everything you tap with a finger must be noticeably larger.
     if (mobile) {
         style +=
             "#tracker { border: none; }"
@@ -233,7 +233,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
 
     QFont timeFont = timeLabel->font();
     timeFont.setBold(true);
-    // Na Androidzie czcionka ma rozmiar w pikselach i samo pointSize() zwraca -1.
+    // On Android the font size is in pixels and pointSize() alone returns -1.
     const qreal timeSize = QFontInfo(timeFont).pointSizeF();
     timeFont.setPointSizeF(mobile ? timeSize * 3 : timeSize + 2);
     timeLabel->setFont(timeFont);
@@ -263,7 +263,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
     todoList->setContextMenuPolicy(Qt::CustomContextMenu);
     todoList->setSpacing(2);
     todoList->setWordWrap(true);
-    // Zadań się nie zaznacza, tylko odhacza.
+    // Tasks are not selected, only checked off.
     todoList->setSelectionMode(QAbstractItemView::NoSelection);
     todoList->setFocusPolicy(Qt::NoFocus);
     todoDelegate = new TodoDelegate(todoList);
@@ -343,20 +343,20 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
 
         tabs->setTabPosition(QTabWidget::South);
         tabs->setDocumentMode(true);
-        // Tryb dokumentu wyłącza rozciąganie zakładek na całą szerokość.
+        // Document mode stops tabs from stretching to the full width.
         tabs->tabBar()->setExpanding(true);
         tabs->addTab(subjectPage, "Subjects");
         tabs->addTab(todoPage, "To do");
         tabs->addTab(chartPage, "Charts");
 
-        // Bez tego lista przewija się tylko paskiem, a nie przeciągnięciem palca.
+        // Without this the list scrolls only with the scrollbar, not by dragging a finger.
         for (QListWidget* list : {subjectList, todoList}) {
             list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
             list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
             QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
         }
         todoList->viewport()->installEventFilter(this);
-        // Przycisk Wstecz trafia do okna, zanim zobaczy go którykolwiek widżet.
+        // The Back button reaches the window before any widget sees it.
         qApp->installEventFilter(this);
         connect(tabs, &QTabWidget::currentChanged, this, [this](int index) {
             tabHistory.append(shownTab);
@@ -428,7 +428,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
 
         layout->addLayout(bar);
         layout->addWidget(dashboard);
-        // Okno samo dopasowuje rozmiar do tego, czy pulpit jest rozwinięty.
+        // The window adjusts its size to whether the dashboard is expanded.
         layout->setSizeConstraint(QLayout::SetFixedSize);
     }
 
@@ -439,7 +439,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
     connect(quitBtn, &QPushButton::clicked, qApp, &QApplication::quit);
     connect(todayBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Today); });
     connect(weekBtn, &QPushButton::clicked, this, [this] { showSection(ChartWidget::Range::Week); });
-    // Sygnał przychodzi też przy ponownym wybraniu tego samego tygodnia.
+    // The signal also fires when the same week is picked again.
     connect(weekPicker, &QComboBox::activated, this,
             [this](int index) { showPastWeek(weekPicker->itemData(index).toDate()); });
     connect(chartSubject, &QComboBox::currentIndexChanged, this,
@@ -451,14 +451,14 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
     connect(addSubjectBtn, &QPushButton::clicked, this, [this] { addSubjectFromDialog(); });
     connect(subjectColorBtn, &QPushButton::clicked, this, [this] { changeSubjectColor(); });
     connect(syncBtn, &QPushButton::clicked, this, [this] { sync(); });
-    // Komputer czeka na telefon przez cały czas działania programu.
+    // The computer waits for the phone for as long as the program runs.
     if (!mobile)
         syncListening = startSyncServer(this, [this] { reloadAfterSync(); });
     connect(todoInput, &QLineEdit::returnPressed, this, [this] { addTodoFromInput(); });
     connect(addTodoBtn, &QPushButton::clicked, this, [this] { addTodoFromInput(); });
     connect(deadlineBtn, &QPushButton::clicked, this, [this] { pickDeadline(); });
     connect(todoList, &QListWidget::itemChanged, this, [this] { updateSolveButton(); });
-    // Na telefonie zadanie odhacza dotknięcie całego wiersza, nie samego kwadracika.
+    // On the phone tapping the whole row checks off a task, not just the checkbox.
     if (mobile) {
         connect(todoList, &QListWidget::itemClicked, this, [](QListWidgetItem* item) {
             if (!item->data(TodoSolvingRole).toBool())
@@ -484,23 +484,23 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
         counter.stop();
         hideTimerNotification();
     });
-    // Android potrafi ubić aplikację w tle bez aboutToQuit, więc zapis przy zejściu z ekranu.
+    // Android can kill a background app without aboutToQuit, so save when leaving the screen.
     connect(qApp, &QApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
         if (state != Qt::ApplicationActive) {
             counter.checkpoint();
-            // Zmiany z telefonu trafiają na komputer, zanim aplikacja zniknie z ekranu.
+            // Changes from the phone reach the computer before the app leaves the screen.
             if (this->mobile)
                 sync(true);
         } else if (this->mobile) {
             updateTime();
             refreshSubjects();
-            // Powiadomienie wysłane przed zgodą użytkownika na powiadomienia przepadło.
+            // A notification sent before the user allowed notifications was lost.
             updateNotification();
             sync(true);
         }
     });
 
-    // Schowana aplikacja na telefonie dalej liczy i zapisuje czas, ale nie ma czego rysować.
+    // A hidden app on the phone keeps counting and saving time, but has nothing to draw.
     const auto hidden = [this] {
         return this->mobile && QApplication::applicationState() != Qt::ApplicationActive;
     };
@@ -517,14 +517,14 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
         counter.checkpoint();
         if (!hidden()) {
             refreshSubjects();
-            // Po północy do każdego terminu zostaje o dzień mniej.
+            // After midnight every due date is one day closer.
             updateDeadlineButton();
             todoList->viewport()->update();
         }
     });
     autosave->start(10000);
 
-    // Telefon z otwartą aplikacją co chwilę wymienia dane z komputerem, jeśli ten jest w sieci.
+    // With the app open the phone regularly exchanges data with the computer if it is on the network.
     if (mobile) {
         auto* autosync = new QTimer(this);
         connect(autosync, &QTimer::timeout, this, [this, hidden] {
@@ -533,7 +533,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
         });
         autosync->start(2 * 60 * 1000);
         QTimer::singleShot(0, this, [this] { sync(true); });
-        // Zamknięta aplikacja synchronizuje się w tle; gdy przy tym działa, odświeża widok.
+        // A closed app syncs in the background; if it is running at the time, it refreshes the view.
         onBackgroundSync([this] {
             syncIdleText = "Synced at " + QTime::currentTime().toString("HH:mm");
             syncBtn->setText(syncIdleText);
@@ -552,7 +552,7 @@ TrackerWindow::TrackerWindow(bool mobile) : mobile(mobile) {
 }
 
 void TrackerWindow::mousePressEvent(QMouseEvent* event) {
-    // Okno nie ma ramki, więc przesuwamy je łapiąc za tło.
+    // The window is frameless, so it is moved by dragging the background.
     if (!mobile && event->button() == Qt::LeftButton && windowHandle())
         windowHandle()->startSystemMove();
 }
@@ -564,7 +564,7 @@ void TrackerWindow::resizeEvent(QResizeEvent* event) {
 }
 
 bool TrackerWindow::eventFilter(QObject* watched, QEvent* event) {
-    // Nieobsłużony przycisk Wstecz zamknąłby aplikację razem ze stoperem.
+    // An unhandled Back button would close the app along with the stopwatch.
     const bool isKey = event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease;
     if (isKey && watched == windowHandle()
         && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Back) {
@@ -573,7 +573,7 @@ bool TrackerWindow::eventFilter(QObject* watched, QEvent* event) {
         return true;
     }
 
-    // Długie przytrzymanie zadania zastępuje na telefonie prawy przycisk myszy.
+    // On the phone a long press on a task replaces the right mouse button.
     if (watched == todoList->viewport()) {
         switch (event->type()) {
             case QEvent::MouseButtonPress:
@@ -602,7 +602,7 @@ void TrackerWindow::goBack() {
     } else if (QWidget* popup = QApplication::activePopupWidget()) {
         popup->close();
     } else if (!tabHistory.isEmpty()) {
-        // Cofanie się nie jest kolejnym krokiem do zapamiętania.
+        // Going back is not another step to remember.
         const QSignalBlocker blocker(tabs);
         shownTab = tabHistory.takeLast();
         tabs->setCurrentIndex(shownTab);
@@ -630,7 +630,7 @@ void TrackerWindow::sync(bool automatic) {
         && (automatic || !askSyncTarget()))
         return;
 
-    // Trwająca nauka ma trafić na komputer z aktualnym czasem.
+    // The running session must reach the computer with the current time.
     counter.checkpoint();
     syncing = true;
     if (!automatic) {
@@ -698,7 +698,7 @@ bool TrackerWindow::askSyncTarget() {
 }
 
 void TrackerWindow::reloadAfterSync() {
-    // Z drugiego urządzenia mogły przyjść tygodnie starsze niż te na liście.
+    // Weeks older than those on the list may have arrived from the other device.
     listedBefore = {};
     refreshSubjectPickers();
     refreshSubjects();
@@ -745,7 +745,7 @@ void TrackerWindow::toggleDashboard() {
     dashboard->setVisible(dashboard->isHidden());
     updateControls();
 
-    // Trzymamy prawy górny róg w miejscu, ale nie pozwalamy wyjechać poza ekran.
+    // Keep the top-right corner in place, but do not let the window go off screen.
     adjustSize();
     move(qMax(available.left(), topRight.x() - width() + 1),
          qMin(topRight.y(), qMax(available.top(), available.bottom() - height())));
@@ -753,7 +753,7 @@ void TrackerWindow::toggleDashboard() {
 
 void TrackerWindow::showSection(ChartWidget::Range section) {
     ChartWidget::Mode& mode = section == ChartWidget::Range::Today ? todayMode : weekMode;
-    // Z wcześniejszego tygodnia przycisk sekcji najpierw wraca do bieżącego okresu.
+    // From an earlier week the section button first returns to the current period.
     if (section == currentSection && !pastWeek.isValid())
         mode = nextMode(mode, section);
     currentSection = section;
@@ -763,7 +763,7 @@ void TrackerWindow::showSection(ChartWidget::Range section) {
 }
 
 void TrackerWindow::showPastWeek(const QDate& monday) {
-    // Wcześniejsze tygodnie dzielą tryb z sekcją tygodnia; ponowny wybór go przełącza.
+    // Earlier weeks share the mode with the week section; picking again switches it.
     if (monday == pastWeek)
         weekMode = nextMode(weekMode, ChartWidget::Range::Week);
     currentSection = ChartWidget::Range::Week;
@@ -775,7 +775,7 @@ void TrackerWindow::showPastWeek(const QDate& monday) {
 void TrackerWindow::selectSubject(int subjectId) {
     if (subjectId == currentSubject) return;
 
-    // Zmiana przedmiotu w trakcie nauki zamyka bieżący pomiar i zaczyna nowy.
+    // Changing the subject while studying closes the current measurement and starts a new one.
     const bool wasRunning = counter.state() == Counter::State::Running;
     counter.stop();
     currentSubject = subjectId;
@@ -792,7 +792,7 @@ void TrackerWindow::refreshSubjects() {
     const QSignalBlocker blocker(subjectList);
     const QList<SubjectTotal> subjects = subjectsWithTodayTotals();
 
-    // Aktualizujemy wiersze w miejscu: lista bywa odświeżana z jej własnego sygnału.
+    // Update rows in place: the list is sometimes refreshed from its own signal.
     for (int row = 0; row < subjects.size(); ++row) {
         const SubjectTotal& s = subjects[row];
         auto* item = row < subjectList->count() ? subjectList->item(row)
@@ -818,7 +818,7 @@ void TrackerWindow::refreshSubjectPickers() {
         {chartSubject, "All subjects"},
     };
     for (const auto& p : pickers) {
-        // Przedmiotów tylko przybywa, więc dotychczasowy wybór da się zawsze odtworzyć.
+        // Subjects are only ever added, so the previous selection can always be restored.
         const QSignalBlocker blocker(p.picker);
         const QVariant chosen = p.picker->count() > 0 ? p.picker->currentData() : QVariant(-1);
         p.picker->clear();
@@ -868,7 +868,7 @@ QColor TrackerWindow::pickColor(const QColor& initial, const QString& title) {
     if (!mobile)
         return QColorDialog::getColor(initial, this, title);
 
-    // QColorDialog nie mieści się na ekranie telefonu, więc wybór jest z gotowej palety.
+    // QColorDialog does not fit on a phone screen, so the choice is from a preset palette.
     auto* palette = new QWidget;
     auto* grid = new QGridLayout(palette);
     grid->setContentsMargins(0, 0, 0, 0);
@@ -891,10 +891,10 @@ QColor TrackerWindow::pickColor(const QColor& initial, const QString& title) {
     return chosen;
 }
 
-// Zwraca nieprawidłową datę, gdy wybór został anulowany.
+// Returns an invalid date when the selection was cancelled.
 std::optional<QDate> TrackerWindow::pickDate(const QDate& initial, const QString& title) {
     auto* calendar = new QCalendarWidget;
-    // Nazwy miesięcy i dni po angielsku, jak reszta programu.
+    // Month and day names in English, like the rest of the program.
     calendar->setLocale(QLocale::English);
     calendar->setFirstDayOfWeek(Qt::Monday);
     calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
@@ -902,9 +902,9 @@ std::optional<QDate> TrackerWindow::pickDate(const QDate& initial, const QString
     calendar->setSelectedDate(initial);
 
     if (mobile) {
-        // Dni muszą być na tyle duże, żeby trafić w nie palcem.
+        // Days must be large enough to hit with a finger.
         calendar->setMinimumHeight(340);
-        // Kalendarz znika razem z panelem, więc wybór trzeba zapamiętywać na bieżąco.
+        // The calendar disappears with the panel, so the selection must be stored as it changes.
         QDate chosen = calendar->selectedDate();
         connect(calendar, &QCalendarWidget::selectionChanged, this,
                 [&chosen, calendar] { chosen = calendar->selectedDate(); });
@@ -924,7 +924,7 @@ std::optional<QDate> TrackerWindow::pickDate(const QDate& initial, const QString
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(calendar, &QCalendarWidget::activated, &dialog, &QDialog::accept);
-    // Osobny wynik okna, żeby odróżnić "bez terminu" od anulowania.
+    // A separate dialog result to tell "no due date" apart from cancelling.
     const int noDeadline = QDialog::Accepted + 1;
     connect(buttons->addButton("No deadline", QDialogButtonBox::ResetRole), &QPushButton::clicked,
             &dialog, [&dialog, noDeadline] { dialog.done(noDeadline); });
@@ -935,9 +935,9 @@ std::optional<QDate> TrackerWindow::pickDate(const QDate& initial, const QString
     }
 }
 
-// Na telefonie pytania są panelem wewnątrz głównego okna: osobne okna dialogowe Qt
-// potrafią tam wywalić aplikację albo nie mieścić się na ekranie.
-// Zwraca numer naciśniętego przycisku albo -1 po przycisku Wstecz.
+// On the phone prompts are a panel inside the main window: separate Qt dialogs
+// can crash the app there or not fit on the screen.
+// Returns the index of the pressed button, or -1 after the Back button.
 int TrackerWindow::runSheet(const QString& text, QWidget* content, const QStringList& buttons) {
     QWidget shade(this);
     shade.setObjectName("shade");
@@ -957,7 +957,7 @@ int TrackerWindow::runSheet(const QString& text, QWidget* content, const QString
         connect(button, &QPushButton::clicked, &shade, [this, i] { finishSheet(i); });
         row->addWidget(button);
     }
-    // Enter w polu tekstowym działa jak ostatni przycisk.
+    // Enter in the text field acts like the last button.
     if (auto* input = qobject_cast<QLineEdit*>(content)) {
         connect(input, &QLineEdit::returnPressed, &shade,
                 [this, last = buttons.size() - 1] { finishSheet(last); });
@@ -969,7 +969,7 @@ int TrackerWindow::runSheet(const QString& text, QWidget* content, const QString
         column->addWidget(content);
     column->addLayout(row);
 
-    // Panel jest w górnej części ekranu, żeby nie zasłoniła go klawiatura.
+    // The panel is in the upper part of the screen so the keyboard does not cover it.
     auto* outer = new QVBoxLayout(&shade);
     outer->addStretch(1);
     outer->addWidget(panel);
@@ -999,7 +999,7 @@ void TrackerWindow::pickFromSheet(QComboBox* picker, const QString& title) {
     for (int i = 0; i < picker->count(); ++i)
         new QListWidgetItem(picker->itemIcon(i), picker->itemText(i), list);
     list->setCurrentRow(picker->currentIndex());
-    // Cała lista, o ile mieści się w części ekranu nad klawiaturą; dłuższa się przewija.
+    // The whole list if it fits in the part of the screen above the keyboard; a longer one scrolls.
     const int rows = list->count() * (list->sizeHintForRow(0) + 2 * list->spacing());
     list->setFixedHeight(std::min(rows + 2 * list->frameWidth(), height() * 3 / 5));
     list->scrollToItem(list->currentItem(), QAbstractItemView::PositionAtCenter);
@@ -1013,7 +1013,7 @@ void TrackerWindow::pickFromSheet(QComboBox* picker, const QString& title) {
     if (chosen < 0) return;
 
     picker->setCurrentIndex(chosen);
-    // Tak jak zwykła lista: activated także przy ponownym wyborze tej samej pozycji.
+    // Like a regular list: activated also when the same item is picked again.
     emit picker->activated(chosen);
 }
 
@@ -1022,7 +1022,7 @@ QString TrackerWindow::askText(const QString& title, const QString& label,
     if (!mobile)
         return QInputDialog::getText(this, title, label, QLineEdit::Normal, initial, accepted);
 
-    // Pole znika razem z panelem, więc tekst trzeba zapamiętywać na bieżąco.
+    // The field disappears with the panel, so the text must be stored as it changes.
     QString text = initial;
     auto* input = new QLineEdit(initial);
     connect(input, &QLineEdit::textChanged, this, [&text](const QString& now) { text = now; });
@@ -1044,7 +1044,7 @@ bool TrackerWindow::askYesNo(const QString& title, const QString& text) {
 }
 
 void TrackerWindow::refreshWeeks() {
-    // Lista zmienia się tylko wtedy, gdy kończy się tydzień: trafia na nią ten miniony.
+    // The list changes only when a week ends: the past week is added to it.
     const QDate today = QDate::currentDate();
     const QDate thisMonday = today.addDays(1 - today.dayOfWeek());
     if (thisMonday == listedBefore) return;
@@ -1053,7 +1053,7 @@ void TrackerWindow::refreshWeeks() {
     const QSignalBlocker blocker(weekPicker);
     weekPicker->clear();
 
-    // Od zeszłego tygodnia wstecz do tygodnia z najstarszym odcinkiem nauki.
+    // From last week back to the week with the oldest study session.
     const qint64 firstStart = firstSessionStart();
     if (firstStart > 0) {
         const QDate firstDay = QDateTime::fromSecsSinceEpoch(firstStart).date();
@@ -1072,7 +1072,7 @@ void TrackerWindow::addTodoFromInput() {
     const QString text = todoInput->text().trimmed();
     if (text.isEmpty()) return;
 
-    // Termin wybrany wczoraj i niewykorzystany nie może trafić do nowego zadania.
+    // A due date picked yesterday and left unused must not go to a new task.
     const QDate today = QDate::currentDate();
     addTodo(text, todoSubject->currentData().toInt(),
             newTodoWithoutDeadline ? QDate() : std::max(newTodoDeadline, today));
@@ -1096,14 +1096,14 @@ void TrackerWindow::pickDeadline() {
         return;
     }
 
-    // Kalendarz otwiera się na terminie pierwszego zaznaczonego zadania.
+    // The calendar opens on the due date of the first selected task.
     const QDate current = checked.first()->data(TodoDeadlineRole).toDate();
     const QString title = checked.size() == 1 ? "Deadline: " + checked.first()->text()
                                               : QString("Deadline of %1 tasks").arg(checked.size());
     const std::optional<QDate> chosen = pickDate(std::max(current, today), title);
     if (!chosen) return;
 
-    // Zaznaczenie znika, żeby przesunięte zadania nie zostały przypadkiem rozwiązane.
+    // The selection is cleared so the moved tasks are not solved by accident.
     {
         const QSignalBlocker blocker(todoList);
         for (QListWidgetItem* item : checked) {
@@ -1143,7 +1143,7 @@ void TrackerWindow::updateDeadlineButton() {
 }
 
 void TrackerWindow::refreshTodos() {
-    // Rozwiązywane zadania są już odhaczone w bazie, więc znikną razem z listą.
+    // Tasks being solved are already checked off in the database, so they vanish with the list.
     solveAnimation->stop();
 
     QSet<int> checked;
@@ -1171,7 +1171,7 @@ void TrackerWindow::refreshTodos() {
 }
 
 void TrackerWindow::solveCheckedTodos() {
-    // Poprzednia animacja mogła jeszcze trwać.
+    // The previous animation may still be running.
     solveAnimation->stop();
     removeSolvedTodos();
 
@@ -1180,7 +1180,7 @@ void TrackerWindow::solveCheckedTodos() {
         for (int row = 0; row < todoList->count(); ++row) {
             QListWidgetItem* item = todoList->item(row);
             if (item->checkState() != Qt::Checked) continue;
-            // Zapis od razu, żeby zamknięcie programu w trakcie animacji nic nie zgubiło.
+            // Save right away so closing the program during the animation loses nothing.
             completeTodo(item->data(TodoIdRole).toInt());
             item->setData(TodoSolvingRole, true);
             item->setFlags(Qt::ItemIsEnabled);
@@ -1188,7 +1188,7 @@ void TrackerWindow::solveCheckedTodos() {
     }
     updateSolveButton();
     solveAnimation->start();
-    // Odhaczone zadania od razu pojawiają się przy słupkach.
+    // Checked-off tasks appear next to the bars immediately.
     if (!dashboard->isHidden())
         chart->reload();
 }
@@ -1216,7 +1216,7 @@ void TrackerWindow::showTodoMenu(const QPoint& pos) {
     const QAction* changeDeadline = menu.addAction("Change deadline…");
     const QAction* remove = menu.addAction("Delete task…");
     menu.addSeparator();
-    // Te same pozycje co przy dodawaniu zadania.
+    // The same items as when adding a task.
     for (int i = 0; i < todoSubject->count(); ++i) {
         menu.addAction(todoSubject->itemIcon(i), todoSubject->itemText(i))
             ->setData(todoSubject->itemData(i));

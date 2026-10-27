@@ -24,61 +24,61 @@ struct Session {
 struct Todo {
     int id;
     QString text;
-    // Kolor przypisanego przedmiotu; nieprawidłowy, gdy zadanie nie ma przedmiotu.
+    // Color of the assigned subject; invalid when the task has no subject.
     QColor color;
-    // Nieprawidłowy u zadań dodanych, zanim pojawiły się terminy.
+    // Invalid for tasks added before due dates existed.
     QDate deadline;
 };
 
-// Zadanie odhaczone w trakcie nauki albo tuż po niej, przypisane do tej nauki.
+// A task checked off during or right after a study session, assigned to that session.
 struct DoneTodo {
     QString text;
-    // Przedmiot nauki, do której zadanie się liczy.
+    // Subject of the session the task counts towards.
     int subjectId;
     qint64 done;
-    // Chwila w obrębie tej nauki i pytanego przedziału; wyznacza dzień, do którego się liczy.
+    // A moment within that session and the queried range; determines the day it counts towards.
     qint64 at;
 };
 
 QString databasePath();
 bool openDatabase();
 QList<SubjectTotal> subjectsWithTodayTotals();
-// Nowy przedmiot trafia na koniec listy; false, gdy taka nazwa już istnieje.
+// A new subject goes to the end of the list; false when the name already exists.
 bool addSubject(const QString& name, const QColor& color);
 void setSubjectColor(int id, const QColor& color);
-// Odcinki nauki przycięte do przedziału [from, to), posortowane po czasie startu.
+// Study sessions clipped to [from, to), sorted by start time.
 QList<Session> sessionsBetween(qint64 from, qint64 to);
-// Początek najstarszego odcinka nauki; 0, gdy nie ma jeszcze żadnego.
+// Start of the oldest study session; 0 when there are none yet.
 qint64 firstSessionStart();
 
-// Zadania jeszcze nieodhaczone, od najbliższego terminu; te bez terminu na końcu.
-// Przy równych terminach w kolejności przedmiotów, z zadaniami bez przedmiotu na końcu.
+// Tasks not yet checked off, nearest due date first; those without a due date last.
+// Equal due dates follow subject order, with tasks without a subject last.
 QList<Todo> openTodos();
-// subjectId == -1 oznacza zadanie bez przedmiotu.
+// subjectId == -1 means a task without a subject.
 void addTodo(const QString& text, int subjectId, const QDate& deadline);
 void setTodoSubject(int id, int subjectId);
 void setTodoDeadline(int id, const QDate& deadline);
 void completeTodo(int id);
-// Usunięte zadanie zostaje w bazie z czasem usunięcia, żeby synchronizacja go nie przywróciła.
+// A deleted task stays in the database with its deletion time so sync does not restore it.
 void deleteTodo(int id);
-// Zadania odhaczone w trakcie odcinka nauki albo najwyżej kTodoAfterSession sekund po nim,
-// przypisane do odcinków nachodzących na [from, to). Zadanie z przedmiotem liczy się tylko do
-// nauki tego przedmiotu; zadanie bez przedmiotu do ostatniej nauki przed nim.
+// Tasks checked off during a study session or at most kTodoAfterSession seconds after it,
+// assigned to sessions overlapping [from, to). A task with a subject counts only towards
+// study of that subject; a task without a subject counts towards the last session before it.
 constexpr qint64 kTodoAfterSession = 30 * 60;
-// Zadania odhaczone przed wprowadzeniem tej funkcji (27.10.2026 13:22) się nie liczą.
+// Tasks checked off before this feature was introduced (2026-10-27 13:22) do not count.
 constexpr qint64 kTodosCountFrom = 1793103771;
 QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to);
 
-// Cała baza w postaci, którą druga strona synchronizacji potrafi scalić ze swoją.
+// The whole database in a form the other side of the sync can merge with its own.
 QJsonObject exportSnapshot();
-// Scalanie dopisuje brakujące wiersze i niczego nie usuwa (usunięty odcinek nauki to odcinek
-// skrócony do zera). Gdy to samo pole zmieniono na obu urządzeniach od ostatniej
-// synchronizacji, wygrywa komputer.
+// Merging adds missing rows and never deletes anything (a deleted study session is a session
+// shortened to zero). When the same field changed on both devices since the last
+// sync, the computer wins.
 enum class MergeResult { Failed, Unchanged, Changed };
-// Na komputerze: zmiana z telefonu wygrywa, gdy jest nowsza, a komputer nie zmieniał tego
-// pola od lastSync (czas komputera z poprzedniej synchronizacji z tym telefonem).
+// On the computer: a change from the phone wins when it is newer and the computer has not changed
+// that field since lastSync (the computer's time of the previous sync with this phone).
 MergeResult mergeFromPhone(const QJsonObject& snapshot, qint64 lastSync);
-// Na telefonie: komputer odsyła stan już rozstrzygnięty, więc jego wartości wygrywają.
+// On the phone: the computer sends back an already resolved state, so its values win.
 MergeResult mergeFromComputer(const QJsonObject& snapshot);
 
 #endif

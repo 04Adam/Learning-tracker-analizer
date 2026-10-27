@@ -47,7 +47,7 @@ void setAutostart(bool enabled) {
 
 void enableAutostartOnFirstRun() {
 #if !defined(Q_OS_ANDROID) && defined(STUDYTRACKER_INSTALLED_BINARY)
-    // Programy uruchamiane z katalogów budowania nie trafiają do autostartu.
+    // Programs run from build directories are not added to autostart.
     if (QCoreApplication::applicationFilePath() != STUDYTRACKER_INSTALLED_BINARY) return;
     if (syncSetting("autostart_offered").toBool()) return;
     setSyncSetting("autostart_offered", true);

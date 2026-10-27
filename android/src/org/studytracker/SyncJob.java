@@ -11,15 +11,15 @@ import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 
-// Synchronizacja w tle, gdy aplikacja jest zamknięta. Android uruchamia ją:
-// - zaraz po połączeniu telefonu z siecią Wi-Fi (SyncReceiver dostaje wtedy wiadomość),
-// - co 15 minut, co wyłapuje zmiany na komputerze i hotspot udostępniany przez telefon.
+// Background sync while the app is closed. Android runs it:
+// - right after the phone connects to a Wi-Fi network (SyncReceiver gets a broadcast then),
+// - every 15 minutes, which catches changes on the computer and the phone's own hotspot.
 public class SyncJob extends JobService {
     private static final int PERIODIC_JOB = 1;
     private static final int SOON_JOB = 2;
     private static final long PERIOD_MS = 15 * 60 * 1000;
 
-    // Wołane przy każdym starcie aplikacji i po ponownym uruchomieniu telefonu.
+    // Called on every app start and after the phone reboots.
     static void schedule(Context context) {
         final JobScheduler jobs = context.getSystemService(JobScheduler.class);
         if (jobs.getPendingJob(PERIODIC_JOB) == null) {
@@ -29,21 +29,21 @@ public class SyncJob extends JobService {
                     .build());
         }
 
-        // Ta prośba przetrwa zamknięcie aplikacji, ale nie ponowne uruchomienie telefonu
-        // ani aktualizację aplikacji; wtedy odnawia ją SyncReceiver.
+        // This request survives the app closing, but not a phone reboot
+        // or an app update; SyncReceiver renews it then.
         final ConnectivityManager connectivity = context.getSystemService(ConnectivityManager.class);
         final PendingIntent intent = SyncReceiver.networkIntent(context);
         try {
             connectivity.unregisterNetworkCallback(intent);
         } catch (IllegalArgumentException ignored) {
-            // Nie była jeszcze zarejestrowana.
+            // Not registered yet.
         }
         connectivity.registerNetworkCallback(new NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .build(), intent);
     }
 
-    // Jednorazowa synchronizacja możliwie szybko; sieć ma chwilę, żeby się ustabilizować.
+    // One-off sync as soon as possible; the network gets a moment to settle.
     static void runSoon(Context context) {
         context.getSystemService(JobScheduler.class).schedule(
                 new JobInfo.Builder(SOON_JOB, new ComponentName(context, SyncJob.class))
@@ -63,7 +63,7 @@ public class SyncJob extends JobService {
 
     @Override
     public boolean onStopJob(JobParameters params) {
-        // Następna okazja i tak przyjdzie; nie trzeba ponawiać.
+        // The next chance will come anyway; no need to retry.
         return false;
     }
 }

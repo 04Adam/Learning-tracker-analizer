@@ -14,7 +14,7 @@
 static void applyDarkTheme() {
     QApplication::setStyle("Fusion");
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
-    // Android dobiera do tego jasne ikony na pasku stanu.
+    // Android picks light status bar icons to match this.
     QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
 #endif
 
@@ -46,39 +46,39 @@ static void applyDarkTheme() {
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
-    // Nazwa wyznacza katalog z bazą danych (~/.local/share/StudyTracker).
+    // The name determines the database directory (~/.local/share/StudyTracker).
     QApplication::setApplicationName("StudyTracker");
-    // Po tej nazwie pulpit łączy okno ze skrótem studytracker.desktop.
+    // The desktop uses this name to match the window with the studytracker.desktop shortcut.
     QApplication::setDesktopFileName("studytracker");
     QApplication::setWindowIcon(QIcon(":/icons/studytracker.png"));
     applyDarkTheme();
 
-    // Synchronizacja w tle mogła właśnie pracować na bazie; czekamy, aż skończy.
+    // Background sync may be working on the database right now; wait for it to finish.
     prepareSync();
     if (!openDatabase())
         return 1;
 
-    // Na komputerze --mobile pokazuje układ z telefonu w zwykłym oknie.
+    // On desktop --mobile shows the phone layout in a regular window.
 #ifdef Q_OS_ANDROID
     const bool mobile = true;
 #else
     const bool mobile = app.arguments().contains("--mobile");
 #endif
 
-    // Android daje przyciskom i listom mniejszą czcionkę niż reszcie; wyrównujemy do niej.
+    // Android gives buttons and lists a smaller font than the rest; make them match.
     if (mobile)
         QApplication::setFont(QApplication::font("QPushButton"));
 
     TrackerWindow window(mobile);
     if (mobile) {
-        // Android i tak rozciąga okno na cały ekran.
+        // Android stretches the window to full screen anyway.
         window.resize(400, 800);
     } else {
         window.adjustSize();
         QRect screen = app.primaryScreen()->availableGeometry();
         window.move(screen.right() - window.width() - 10, screen.top() + 10);
     }
-    // Autostart uruchamia program schowany, żeby tylko czekał na telefon.
+    // Autostart launches the program hidden, just to wait for the phone.
     if (!mobile && app.arguments().contains("--minimized")) {
         window.showMinimized();
     } else {

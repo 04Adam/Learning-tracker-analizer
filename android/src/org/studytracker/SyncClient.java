@@ -37,8 +37,8 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-// Strona telefonu w synchronizacji z komputerem; ten sam protokół co w Sync.cpp.
-// Działa i z otwartej aplikacji, i z pracy w tle (SyncJob), gdy aplikacja jest zamknięta.
+// The phone side of syncing with the computer; same protocol as in Sync.cpp.
+// Works both from the open app and from the background job (SyncJob) when the app is closed.
 public final class SyncClient {
     private static final int DEFAULT_PORT = 47815;
     private static final int FIND_TIMEOUT_MS = 1500;
@@ -50,12 +50,12 @@ public final class SyncClient {
     private static final byte[] COMPUTER = "computer".getBytes(StandardCharsets.UTF_8);
     private static final SecureRandom random = new SecureRandom();
 
-    // Naraz trwa jedna synchronizacja; prośba w jej trakcie powtarza ją po zakończeniu.
+    // One sync runs at a time; a request made during it repeats it once it finishes.
     private static final Object lock = new Object();
     private static boolean running;
     private static boolean again;
-    // Gdy działa program Qt, to on zapisuje bazę: dwie kopie SQLite w jednym procesie
-    // mogą sobie nawzajem zwolnić blokady pliku i uszkodzić bazę.
+    // While the Qt program runs, it writes the database: two SQLite copies in one process
+    // can release each other's file locks and corrupt the database.
     private static volatile boolean qtAttached;
 
     private static native byte[] exportFromQt();
@@ -64,7 +64,7 @@ public final class SyncClient {
 
     private SyncClient() {}
 
-    // ----- Ustawienia, wspólne dla programu Qt i pracy w tle.
+    // ----- Settings, shared by the Qt program and the background job.
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences("sync", Context.MODE_PRIVATE);
@@ -78,9 +78,9 @@ public final class SyncClient {
         prefs(context).edit().putString(key, value).commit();
     }
 
-    // ----- Wołane z programu Qt.
+    // ----- Called from the Qt program.
 
-    // Czeka, aż praca w tle skończy ze swoją kopią SQLite, i od tej chwili oddaje bazę Qt.
+    // Waits until the background job is done with its SQLite copy, and from then on hands the database to Qt.
     public static void attachQt(Context context, String databasePath) {
         setSetting(context, "db", databasePath);
         synchronized (lock) {
@@ -102,9 +102,9 @@ public final class SyncClient {
         new Thread(() -> runSync(app), "StudyTracker sync").start();
     }
 
-    // ----- Właściwa synchronizacja.
+    // ----- The sync itself.
 
-    // Wraca dopiero po skończonej synchronizacji (albo od razu, gdy inna już trwa).
+    // Returns only after the sync finishes (or immediately when another one is running).
     static void runSync(Context context) {
         synchronized (lock) {
             if (running) {
@@ -131,7 +131,7 @@ public final class SyncClient {
         }
     }
 
-    // Zwraca {błąd albo "", "changed" albo null}.
+    // Returns {error or "", "changed" or null}.
     private static String[] syncOnce(Context context) {
         final String code = normalizeCode(getSetting(context, "code"));
         if (code.isEmpty())
@@ -146,7 +146,7 @@ public final class SyncClient {
         final byte[] key = sha256("StudyTracker sync key v2\n" + code);
         final String finderId = hex(sha256("StudyTracker discovery v2\n" + code), 8);
 
-        // Najpierw komputer znaleziony w sieci, potem adres wpisany ręcznie i ostatnio znany.
+        // First the computer found on the network, then the manually entered and last known addresses.
         final String found = findComputer(finderId, port);
         if (found != null) setSetting(context, "found", found);
         final Set<String> hosts = new LinkedHashSet<>();
@@ -173,7 +173,7 @@ public final class SyncClient {
         return new String[] {lastError, null};
     }
 
-    // Błąd, którego nie naprawi próba pod innym adresem.
+    // An error that trying another address will not fix.
     private static final class FatalError extends Exception {
         private static final long serialVersionUID = 1L;
 
@@ -187,8 +187,8 @@ public final class SyncClient {
             socket.setBroadcast(true);
             final byte[] question = (new JSONObject().put("find", finderId).toString() + "\n")
                     .getBytes(StandardCharsets.UTF_8);
-            // Niektóre sieci nie przepuszczają adresu 255.255.255.255, więc też adres każdej
-            // sieci, również hotspotu udostępnianego przez ten telefon.
+            // Some networks block 255.255.255.255, so also each network's broadcast
+            // address, including the hotspot shared by this phone.
             final Set<InetAddress> targets = new LinkedHashSet<>();
             targets.add(InetAddress.getByName("255.255.255.255"));
             final Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
@@ -203,7 +203,7 @@ public final class SyncClient {
                 try {
                     socket.send(new DatagramPacket(question, question.length, target, port));
                 } catch (IOException ignored) {
-                    // Ta sieć nie przyjmuje rozgłoszeń; zostają pozostałe.
+                    // This network does not accept broadcasts; the others remain.
                 }
             }
 
@@ -224,7 +224,7 @@ public final class SyncClient {
                 }
             }
         } catch (IOException | JSONException e) {
-            // Także koniec czasu na odpowiedź (SocketTimeoutException).
+            // Also a reply timeout (SocketTimeoutException).
             return null;
         }
     }
@@ -280,11 +280,11 @@ public final class SyncClient {
         }
     }
 
-    // ----- Baza danych: przez program Qt, gdy działa, a inaczej bezpośrednio.
+    // ----- Database: through the Qt program when it is running, otherwise directly.
 
     private interface Database {
         JSONObject export() throws Exception;
-        // 0: błąd, 1: bez zmian, 2: dane się zmieniły.
+        // 0: error, 1: no changes, 2: data changed.
         int merge(JSONObject snapshot) throws Exception;
         void close();
 
@@ -318,15 +318,15 @@ public final class SyncClient {
         public void close() {}
     }
 
-    // Odpowiednik exportSnapshot() i mergeFromComputer() z Database.cpp. Telefon przyjmuje
-    // wartości komputera, bo komputer odsyła stan już rozstrzygnięty.
+    // Counterpart of exportSnapshot() and mergeFromComputer() from Database.cpp. The phone takes
+    // the computer's values, because the computer sends back an already resolved state.
     private static final class DirectDatabase implements Database {
         private final SQLiteDatabase db;
 
         DirectDatabase(SQLiteDatabase db) {
             this.db = db;
-            // Baza mogła jeszcze nie przejść migracji z Database.cpp, jeśli po aktualizacji
-            // aplikacja nie była otwierana, a synchronizacja ruszyła w tle.
+            // The database may not have gone through the Database.cpp migration yet if the app
+            // was not opened after an update and sync started in the background.
             addColumnIfMissing("sessions", "edit_ts", "INTEGER NOT NULL DEFAULT 0");
             addColumnIfMissing("todos", "deleted_ts", "INTEGER");
         }
@@ -442,7 +442,7 @@ public final class SyncClient {
                 final Long subject = subjectIds.get(
                         s.optString("subject").trim().toLowerCase(Locale.ROOT));
                 if (uid.isEmpty() || subject == null) continue;
-                // Ręczna poprawka z komputera zastępuje cały odcinek; bez niej rośnie koniec.
+                // A manual edit from the computer replaces the whole session; without one the end grows.
                 db.execSQL("INSERT INTO sessions(uid, subject_id, start_ts, end_ts, edit_ts) "
                         + "VALUES(?, ?, ?, ?, ?) ON CONFLICT(uid) DO UPDATE SET "
                         + "subject_id = CASE WHEN edit_ts = excluded.edit_ts THEN subject_id "
@@ -469,7 +469,7 @@ public final class SyncClient {
                         deadlineText.matches("\\d{4}-\\d{2}-\\d{2}") ? deadlineText : null;
                 final long deadlineTs = t.optLong("deadline_ts");
                 Long done = t.isNull("done") ? null : t.optLong("done");
-                // Starszy komputer nie wysyła tego pola wcale.
+                // An older computer does not send this field at all.
                 Long deleted = !t.has("deleted") || t.isNull("deleted") ? null : t.optLong("deleted");
 
                 Long id = null;
@@ -491,7 +491,7 @@ public final class SyncClient {
                                           subject, subjectTs, deadline, deadlineTs, deleted});
                     continue;
                 }
-                // Zadanie odhaczone albo usunięte na którymkolwiek urządzeniu jest takie na obu.
+                // A task checked off or deleted on either device is so on both.
                 if (done == null || (localDone != null && localDone < done)) done = localDone;
                 if (deleted == null || (localDeleted != null && localDeleted < deleted))
                     deleted = localDeleted;
@@ -502,7 +502,7 @@ public final class SyncClient {
         }
     }
 
-    // ----- Kod parowania i szyfrowanie; te same wzory są w Sync.cpp.
+    // ----- Pairing code and encryption; the same formulas are in Sync.cpp.
 
     static String normalizeCode(String code) {
         final StringBuilder result = new StringBuilder();
@@ -544,7 +544,7 @@ public final class SyncClient {
         }
     }
 
-    // Wiersz base64: 12 bajtów jednorazowej liczby, zaszyfrowany JSON i 16 bajtów podpisu.
+    // A base64 line: a 12-byte nonce, the encrypted JSON and a 16-byte tag.
     private static String seal(byte[] key, byte[] role, JSONObject message)
             throws GeneralSecurityException {
         final byte[] nonce = randomBytes(12);

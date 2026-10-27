@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network)
 
-# Na Androidzie qt_add_executable buduje bibliotekę i cel apk zamiast zwykłego programu.
+# On Android qt_add_executable builds a library and an apk target instead of a plain executable.
 qt_add_executable(LearningTimeAnalizer
         main.cpp
         AndroidBridge.cpp
@@ -29,24 +29,24 @@ qt_add_executable(LearningTimeAnalizer
         TrackerWindow.h
 )
 
-# Własny manifest i usługa z powiadomieniem stopera.
+# Custom manifest and the service with the stopwatch notification.
 set_target_properties(LearningTimeAnalizer PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
 )
 
-# Ikona okna wbudowana w program.
+# Window icon embedded in the program.
 qt_add_resources(LearningTimeAnalizer "icons"
         PREFIX "/"
         FILES icons/studytracker.png
 )
 
-# Na komputerze "cmake --install" dodaje program do menu aplikacji (domyślnie w ~/.local).
+# On desktop "cmake --install" adds the program to the application menu (~/.local by default).
 if (NOT ANDROID)
     if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
         set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "" FORCE)
     endif ()
     include(GNUInstallDirs)
-    # Tylko zainstalowany program sam dodaje się do autostartu.
+    # Only the installed program adds itself to autostart.
     target_compile_definitions(LearningTimeAnalizer PRIVATE
             STUDYTRACKER_INSTALLED_BINARY="${CMAKE_INSTALL_FULL_BINDIR}/LearningTimeAnalizer")
     configure_file(studytracker.desktop.in studytracker.desktop @ONLY)
@@ -66,7 +66,7 @@ target_link_libraries(LearningTimeAnalizer PRIVATE
         Qt6::Sql
         Qt6::Network
 )
-# Szyfrowanie synchronizacji na komputerze; na Androidzie robi to Java.
+# Sync encryption on desktop; on Android Java handles it.
 if (NOT ANDROID)
     find_package(OpenSSL REQUIRED COMPONENTS Crypto)
     target_link_libraries(LearningTimeAnalizer PRIVATE OpenSSL::Crypto)

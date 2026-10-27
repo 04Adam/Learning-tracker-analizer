@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Synchronizacja z komputerem, także w tle i po ponownym uruchomieniu telefonu. -->
+    <!-- Sync with the computer, also in the background and after the phone reboots. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -47,7 +47,7 @@
                 android:name="android.app.arguments"
                 android:value="-- %%INSERT_APP_ARGUMENTS%% --" />
 
-          <!-- Stoper ma dalej zapisywać czas, gdy aplikacja jest schowana. -->
+          <!-- The stopwatch must keep recording time while the app is in the background. -->
           <meta-data
                 android:name="android.app.background_running"
                 android:value="true" />

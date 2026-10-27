@@ -13,11 +13,11 @@ public:
     void resume();
     void stop();
 
-    // Zapisuje bieżący koniec trwającego odcinka, żeby awaria nie zgubiła danych.
+    // Saves the current end of the running session so a crash does not lose data.
     void checkpoint();
 
     State state() const { return currentState; }
-    // Czas nauki od startu stopera, bez pauz.
+    // Study time since the stopwatch started, excluding pauses.
     std::chrono::seconds elapsed() const;
 
 private:

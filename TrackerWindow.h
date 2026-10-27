@@ -21,8 +21,8 @@ class QTimer;
 class QVariantAnimation;
 class TodoDelegate;
 
-// Małe okienko ze stoperem, które można rozwinąć do pulpitu z wyborem przedmiotu.
-// W układzie na telefon stoper jest na górze ekranu, a pulpit to zakładki pod nim.
+// Small stopwatch window that can be expanded into a dashboard with subject selection.
+// In the phone layout the stopwatch is at the top of the screen and the dashboard is tabs below it.
 class TrackerWindow : public QWidget {
 public:
     explicit TrackerWindow(bool mobile = false);
@@ -44,7 +44,7 @@ private:
     void addSubjectFromDialog();
     void changeSubjectColor();
     QColor pickColor(const QColor& initial, const QString& title);
-    // std::nullopt po anulowaniu; nieprawidłowa data, gdy wybrano "bez terminu".
+    // std::nullopt when cancelled; an invalid date when "no due date" was chosen.
     std::optional<QDate> pickDate(const QDate& initial, const QString& title);
     void pickFromSheet(QComboBox* picker, const QString& title);
     int runSheet(const QString& text, QWidget* content, const QStringList& buttons);
@@ -65,7 +65,7 @@ private:
     void updateControls();
     void updateNotification();
     void goBack();
-    // Samoczynna synchronizacja nie pyta o nic i nie pokazuje błędów.
+    // Automatic sync asks nothing and shows no errors.
     void sync(bool automatic = false);
     void showSyncInfo();
     bool askSyncTarget();
@@ -77,13 +77,13 @@ private:
     int currentSubject = -1;
 
     ChartWidget::Range currentSection = ChartWidget::Range::Today;
-    // Ponowne kliknięcie sekcji przełącza ją na kolejny wykres; trzeci ma tylko tydzień.
+    // Clicking a section again switches it to the next chart; only the week has a third one.
     ChartWidget::Mode todayMode = ChartWidget::Mode::Totals;
     ChartWidget::Mode weekMode = ChartWidget::Mode::Totals;
-    // Poniedziałek wcześniejszego tygodnia wybranego z listy; nieprawidłowy,
-    // gdy oglądana jest zwykła sekcja dnia albo tygodnia.
+    // Monday of the earlier week picked from the list; invalid
+    // when the regular day or week section is being viewed.
     QDate pastWeek;
-    // Poniedziałek tygodnia, przed którym kończy się lista wcześniejszych tygodni.
+    // Monday of the week before which the list of earlier weeks ends.
     QDate listedBefore;
 
     QLabel* subjectLabel;
@@ -92,35 +92,35 @@ private:
     QPushButton* stopBtn;
     QPushButton* expandBtn;
     QWidget* dashboard;
-    // Zakładki pulpitu w układzie na telefon; na komputerze ich nie ma.
+    // Dashboard tabs in the phone layout; absent on desktop.
     QTabWidget* tabs = nullptr;
-    // Wcześniej oglądane zakładki, do których wraca przycisk Wstecz.
+    // Previously viewed tabs the Back button returns to.
     QList<int> tabHistory;
     int shownTab = 0;
     QListWidget* subjectList;
     QPushButton* subjectColorBtn;
     QPushButton* syncBtn;
-    // Otwarty panel z pytaniem w układzie na telefon i sposób na jego zamknięcie.
+    // The open prompt panel in the phone layout and a way to close it.
     QWidget* sheet = nullptr;
     std::function<void(int)> finishSheet;
-    // Na komputerze: czy udało się zacząć czekać na telefon.
+    // On desktop: whether waiting for the phone started successfully.
     bool syncListening = false;
-    // Na telefonie: czy synchronizacja właśnie trwa i co pokazuje przycisk między nimi.
+    // On the phone: whether a sync is in progress and what the button between them shows.
     bool syncing = false;
     QString syncIdleText = "Sync with computer";
     QLineEdit* todoInput;
     QComboBox* todoSubject;
     QPushButton* deadlineBtn;
-    // Przy zaznaczonych zadaniach przycisk zmienia ich termin, a bez nich ustawia termin
-    // dodawanego zadania; nieprawidłowy oznacza dzisiaj.
+    // With tasks selected the button changes their due date, otherwise it sets the due date
+    // of the task being added; invalid means today.
     QDate newTodoDeadline;
-    // Dodawane zadanie nie dostanie terminu i trafi na koniec listy.
+    // The task being added gets no due date and goes to the end of the list.
     bool newTodoWithoutDeadline = false;
     QListWidget* todoList;
     TodoDelegate* todoDelegate;
     QPushButton* solveBtn;
     QVariantAnimation* solveAnimation;
-    // Odmierza długie przytrzymanie zadania, które na telefonie otwiera jego menu.
+    // Times a long press on a task, which opens its menu on the phone.
     QTimer* holdTimer;
     QPoint holdPos;
     QPushButton* todayBtn;

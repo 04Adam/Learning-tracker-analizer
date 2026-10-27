@@ -25,10 +25,10 @@ static bool hasColumn(const QString& table, const QString& column) {
 }
 
 static bool seedSubjects() {
-    // Tylko brakujące przedmioty: istniejące zachowują kolor wybrany przez użytkownika.
-    // Odcienie dobrane tak, żeby dało się je rozróżnić na ciemnym tle,
-    // także przy zaburzeniach widzenia barw (czerwony kontra zielony).
-    // Kolejność tutaj to kolejność wyświetlania przedmiotów i ich zadań.
+    // Only missing subjects: existing ones keep the color chosen by the user.
+    // Hues chosen to be distinguishable on a dark background,
+    // also with color vision deficiency (red vs. green).
+    // The order here is the display order of subjects and their tasks.
     const struct { const char* name; const char* color; } subjects[] = {
         {"Algorithms", "#d93f4c"},
         {"C++/CUDA",   "#2fb37a"},
@@ -37,7 +37,7 @@ static bool seedSubjects() {
     };
 
     QSqlQuery q;
-    // Przedmiot z czasów polskiego interfejsu zachowuje swoje sesje pod nową nazwą.
+    // A subject from the Polish UI era keeps its sessions under the new name.
     q.exec("UPDATE OR IGNORE subjects SET name = 'Algorithms' WHERE name = 'Algorytmy'");
     q.prepare("INSERT INTO subjects(name, color, position) VALUES(?, ?, ?) "
               "ON CONFLICT(name) DO NOTHING");
@@ -77,7 +77,7 @@ bool openDatabase() {
         "color TEXT NOT NULL DEFAULT '#9da0a8', "
         "position INTEGER NOT NULL DEFAULT 0, "
         "color_ts INTEGER NOT NULL DEFAULT 0)",
-        // Jeden wiersz = jeden nieprzerwany odcinek nauki (pauza kończy odcinek).
+        // One row = one uninterrupted study session (a pause ends the session).
         "CREATE TABLE IF NOT EXISTS sessions ("
         "id INTEGER PRIMARY KEY, "
         "subject_id INTEGER NOT NULL REFERENCES subjects(id), "
@@ -86,7 +86,7 @@ bool openDatabase() {
         "uid TEXT)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_subject_start "
         "ON sessions(subject_id, start_ts)",
-        // Odhaczone zadanie zostaje w bazie z czasem wykonania, tylko znika z listy.
+        // A checked-off task stays in the database with its completion time and just disappears from the list.
         "CREATE TABLE IF NOT EXISTS todos ("
         "id INTEGER PRIMARY KEY, "
         "text TEXT NOT NULL, "
@@ -107,22 +107,22 @@ bool openDatabase() {
         }
     }
 
-    // Starsze bazy nie mają kolumn dodanych po ich utworzeniu.
+    // Older databases lack columns added after they were created.
     const struct { const char* table; const char* column; const char* definition; } added[] = {
         {"subjects", "color",      "TEXT NOT NULL DEFAULT '#9da0a8'"},
         {"subjects", "position",   "INTEGER NOT NULL DEFAULT 0"},
         {"todos",    "subject_id", "INTEGER REFERENCES subjects(id)"},
-        // Kolumny do synchronizacji: numery id są na każdym urządzeniu inne, więc wiersze
-        // rozpoznaje się po uid, a o kolorze i przedmiocie zadania decyduje nowsza zmiana.
+        // Sync columns: id numbers differ on each device, so rows are
+        // identified by uid, and the newer change decides a task's color and subject.
         {"subjects", "color_ts",   "INTEGER NOT NULL DEFAULT 0"},
         {"sessions", "uid",        "TEXT"},
         {"todos",    "uid",        "TEXT"},
         {"todos",    "subject_ts", "INTEGER NOT NULL DEFAULT 0"},
-        // Termin to dzień w zapisie rrrr-mm-dd, niezależny od strefy czasowej urządzenia.
+        // The due date is a day in yyyy-mm-dd format, independent of the device's time zone.
         {"todos",    "deadline",    "TEXT"},
         {"todos",    "deadline_ts", "INTEGER NOT NULL DEFAULT 0"},
-        // Czas ręcznej poprawki odcinka; 0, gdy nikt go nie poprawiał. Usunięty odcinek
-        // zostaje w bazie z end_ts = start_ts, żeby drugie urządzenie nie przywróciło go.
+        // Time of the session's manual edit; 0 when nobody edited it. A deleted session
+        // stays in the database with end_ts = start_ts so the other device does not restore it.
         {"sessions", "edit_ts",     "INTEGER NOT NULL DEFAULT 0"},
         {"todos",    "deleted_ts",  "INTEGER"},
     };
@@ -135,7 +135,7 @@ bool openDatabase() {
         }
     }
 
-    // Wiersze sprzed synchronizacji dostają uid dopiero tutaj.
+    // Rows from before sync existed get their uid only here.
     const char* syncStatements[] = {
         "UPDATE sessions SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL",
         "UPDATE todos SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL",
@@ -318,8 +318,8 @@ void deleteTodo(int id) {
 QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to) {
     QList<DoneTodo> result;
 
-    // Także odcinki tuż przed przedziałem: zadanie odhaczone po nich nie może trafić
-    // do późniejszej nauki tylko dlatego, że tamte nie zostały wczytane.
+    // Also sessions just before the range: a task checked off after them must not be assigned
+    // to a later session just because those were not loaded.
     struct Span { int subjectId; qint64 start; qint64 end; };
     QList<Span> spans;
     QSqlQuery q;
@@ -348,7 +348,7 @@ QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to) {
         const int subject = q.value(1).isNull() ? -1 : q.value(1).toInt();
         const qint64 done = q.value(2).toLongLong();
 
-        // Najpóźniej rozpoczęta pasująca nauka, czyli ta, w trakcie lub po której odhaczono.
+        // The latest-started matching session, i.e. the one during or after which the task was checked off.
         const Span* match = nullptr;
         for (const Span& s : spans) {
             if (s.start > done) break;
@@ -368,7 +368,7 @@ QJsonObject exportSnapshot() {
     QJsonArray subjects, sessions, todos;
     QSqlQuery q;
 
-    // Przedmioty idą pod nazwami, bo tylko one są wspólne dla obu urządzeń.
+    // Subjects are sent by name, because only names are shared by both devices.
     if (!q.exec("SELECT name, color, color_ts FROM subjects ORDER BY position, id"))
         qWarning() << "Database reading error:" << q.lastError().text();
     while (q.next()) {
@@ -416,8 +416,8 @@ static bool run(QSqlQuery& q, const QVariantList& values) {
     return false;
 }
 
-// takeIncoming(localTs, incomingTs) mówi, czy pole zmienione na obu urządzeniach ma przyjąć
-// wartość z drugiego urządzenia.
+// takeIncoming(localTs, incomingTs) tells whether a field changed on both devices should take
+// the value from the other device.
 static bool mergeRows(const QJsonObject& snapshot,
                       const std::function<bool(qint64, qint64)>& takeIncoming) {
     QSqlQuery q;
@@ -450,8 +450,8 @@ static bool mergeRows(const QJsonObject& snapshot,
         return subjectIds.value(name.toString().trimmed().toLower(), -1);
     };
 
-    // Odcinek trwającej nauki przychodzi wiele razy, za każdym razem z późniejszym końcem.
-    // Ręczna poprawka (edit_ts) zastępuje cały odcinek, także krótszym albo pustym.
+    // A running session arrives many times, each time with a later end.
+    // A manual edit (edit_ts) replaces the whole session, even with a shorter or empty one.
     for (const QJsonValue& value : snapshot["sessions"].toArray()) {
         const QJsonObject s = value.toObject();
         const QString uid = s["uid"].toString();
@@ -512,10 +512,10 @@ static bool mergeRows(const QJsonObject& snapshot,
         const QVariant localDeleted = q.value(4);
         const bool newerSubject = takeIncoming(q.value(2).toLongLong(), subjectTs);
         const bool newerDeadline = takeIncoming(q.value(3).toLongLong(), deadlineTs);
-        // Zadanie odhaczone na którymkolwiek urządzeniu jest odhaczone na obu.
+        // A task checked off on either device is checked off on both.
         if (done.isNull() || (!localDone.isNull() && localDone.toLongLong() < done.toLongLong()))
             done = localDone;
-        // Tak samo z usunięciem.
+        // Same for deletion.
         if (deleted.isNull()
             || (!localDeleted.isNull() && localDeleted.toLongLong() < deleted.toLongLong()))
             deleted = localDeleted;
@@ -536,7 +536,7 @@ static bool mergeRows(const QJsonObject& snapshot,
 
 static MergeResult merge(const QJsonObject& snapshot,
                          const std::function<bool(qint64, qint64)>& takeIncoming) {
-    // Porównanie całej bazy przed i po jest proste, a baza ma najwyżej kilka megabajtów.
+    // Comparing the whole database before and after is simple, and it is a few megabytes at most.
     const QJsonObject before = exportSnapshot();
     QSqlDatabase db = QSqlDatabase::database();
     if (!db.transaction()) {

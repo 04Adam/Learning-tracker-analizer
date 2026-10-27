@@ -14,23 +14,23 @@ import android.os.Build;
 import android.os.IBinder;
 import android.text.format.DateUtils;
 
-// Usługa pierwszoplanowa: jej powiadomienie pokazuje stoper, a sama jej obecność
-// sprawia, że Android nie ubija aplikacji schowanej w tle.
+// Foreground service: its notification shows the stopwatch, and its mere presence
+// keeps Android from killing the app while it is in the background.
 public class TimerService extends Service {
     private static final String CHANNEL = "stopwatch";
     private static final int NOTIFICATION_ID = 1;
-    // Akcje przycisków powiadomienia; te same nazwy zna strona C++.
+    // Notification button actions; the C++ side knows the same names.
     private static final String ACTION_TOGGLE = "toggle";
     private static final String ACTION_STOP = "stop";
 
     private static volatile TimerService instance;
 
-    // Przekazuje naciśnięcie przycisku powiadomienia do stopera w C++.
+    // Forwards a notification button press to the stopwatch in C++.
     private static native void onAction(String action);
 
     public static void show(Context context, String subject, long elapsedMs, boolean running) {
-        // Działającą usługę wystarczy poprosić o podmianę powiadomienia; ponowny start
-        // usługi pierwszoplanowej bywa zabroniony, gdy aplikacja jest schowana.
+        // A running service just needs to be asked to replace the notification; restarting
+        // a foreground service can be forbidden while the app is in the background.
         final TimerService service = instance;
         if (service != null) {
             service.getSystemService(NotificationManager.class)
@@ -49,7 +49,7 @@ public class TimerService extends Service {
         context.stopService(new Intent(context, TimerService.class));
     }
 
-    // Od Androida 13 powiadomienia wymagają zgody użytkownika.
+    // Since Android 13 notifications require user permission.
     public static void requestPermission(Activity activity) {
         final String permission = "android.permission.POST_NOTIFICATIONS";
         if (Build.VERSION.SDK_INT >= 33
@@ -114,7 +114,7 @@ public class TimerService extends Service {
                 .addAction(action(ACTION_TOGGLE, running ? "Pause" : "Resume"))
                 .addAction(action(ACTION_STOP, "Stop"));
         if (running) {
-            // Czas odlicza samo powiadomienie, więc nie trzeba go co sekundę odświeżać.
+            // The notification counts the time itself, so it does not need refreshing every second.
             builder.setUsesChronometer(true)
                     .setShowWhen(true)
                     .setWhen(System.currentTimeMillis() - elapsed)
@@ -123,7 +123,7 @@ public class TimerService extends Service {
             builder.setShowWhen(false)
                     .setContentText("Paused · " + DateUtils.formatElapsedTime(elapsed / 1000));
         }
-        // Bez tego Android 12+ pokazuje powiadomienie dopiero po kilku sekundach.
+        // Without this Android 12+ shows the notification only after a few seconds.
         if (Build.VERSION.SDK_INT >= 31)
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         return builder.build();
@@ -131,7 +131,7 @@ public class TimerService extends Service {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        // Aplikację wyrzucono z listy ostatnich: stoper już nie działa.
+        // The app was swiped away from recents: the stopwatch no longer runs.
         stopSelf();
     }
 

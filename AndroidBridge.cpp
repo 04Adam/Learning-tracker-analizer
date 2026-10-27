@@ -28,7 +28,7 @@ void hideTimerNotification() {
 static std::function<void(const QString&)> actionHandler;
 
 static void onNotificationAction(JNIEnv*, jclass, jstring action) {
-    // Android woła to ze swojego wątku, a stoper żyje w wątku Qt.
+    // Android calls this from its own thread, while the stopwatch lives in the Qt thread.
     const QString name = QJniObject(action).toString();
     QMetaObject::invokeMethod(qApp, [name] {
         if (actionHandler)
