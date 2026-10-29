@@ -30,14 +30,12 @@ struct Todo {
     QDate deadline;
 };
 
-// A task checked off during or right after a study session, assigned to that session.
+// A checked-off task, shown on the charts.
 struct DoneTodo {
     QString text;
-    // Subject of the session the task counts towards.
+    // Subject the task counts towards (-1: none).
     int subjectId;
     qint64 done;
-    // A moment within that session and the queried range; determines the day it counts towards.
-    qint64 at;
 };
 
 QString databasePath();
@@ -61,13 +59,11 @@ void setTodoDeadline(int id, const QDate& deadline);
 void completeTodo(int id);
 // A deleted task stays in the database with its deletion time so sync does not restore it.
 void deleteTodo(int id);
-// Tasks checked off during a study session or at most kTodoAfterSession seconds after it,
-// assigned to sessions overlapping [from, to). A task with a subject counts only towards
-// study of that subject; a task without a subject counts towards the last session before it.
-constexpr qint64 kTodoAfterSession = 30 * 60;
+// Tasks checked off in [from, to). A task without a subject counts towards the subject
+// of the last study session started before it.
 // Tasks checked off before this feature was introduced (2026-10-27 13:22) do not count.
 constexpr qint64 kTodosCountFrom = 1793103771;
-QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to);
+QList<DoneTodo> todosDoneBetween(qint64 from, qint64 to);
 
 // The whole database in a form the other side of the sync can merge with its own.
 QJsonObject exportSnapshot();

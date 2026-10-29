@@ -13,8 +13,6 @@
 
 static const QColor kMuted(0x9d, 0xa0, 0xa8);
 static const QColor kGrid(0x34, 0x37, 0x3c);
-// Space above a bar for the "+N" label with the number of completed tasks.
-static const qreal kBadgeHeight = 20;
 // A longer list in the tooltip would go off screen.
 static const int kMaxListedTodos = 12;
 
@@ -74,7 +72,7 @@ void ChartWidget::reload() {
         subjects.removeIf([this](const SubjectTotal& s) { return s.id != subjectFilter; });
         sessions.removeIf([this](const Session& s) { return s.subjectId != subjectFilter; });
     }
-    doneTodos = todosDoneWithSessions(rangeStart, rangeEnd);
+    doneTodos = todosDoneBetween(rangeStart, rangeEnd);
     if (subjectFilter != -1)
         doneTodos.removeIf([this](const DoneTodo& t) { return t.subjectId != subjectFilter; });
 
@@ -105,7 +103,7 @@ QRectF ChartWidget::plotRect() const {
     qreal top = 88 + summaryHeight();
     if (mode != Mode::Totals && !subjects.isEmpty())
         top += legendPositions().last().y() - 53 - summaryHeight();
-    // The "+N" label above the day's tallest bar must not overlap the legend.
+    // A "+N" label above a short bar must not overlap the legend.
     if (mode == Mode::Daily)
         top += 8;
     return QRectF(72, top, width() - 72 - 28, height() - top - 44);
@@ -271,7 +269,7 @@ QList<const DoneTodo*> ChartWidget::doneTodosFor(int subjectId, int day) const {
     QList<const DoneTodo*> result;
     for (const DoneTodo& t : doneTodos) {
         if (subjectId != -1 && t.subjectId != subjectId) continue;
-        if (day != -1 && firstDate.daysTo(QDateTime::fromSecsSinceEpoch(t.at).date()) != day)
+        if (day != -1 && firstDate.daysTo(QDateTime::fromSecsSinceEpoch(t.done).date()) != day)
             continue;
         result.append(&t);
     }
@@ -304,24 +302,26 @@ QString ChartWidget::doneTodosHtml(const QList<const DoneTodo*>& todos) const {
     return html;
 }
 
-void ChartWidget::drawTodoBadge(QPainter& p, const QPointF& bottomCenter, int count,
-                                const QColor& color) const {
+void ChartWidget::drawTodoBadge(QPainter& p, const QRectF& bar, qreal aboveY, int count) const {
     if (count <= 0) return;
     QFont bold = font();
     bold.setBold(true);
+    const QFontMetricsF fm(bold);
     const QString text = QString("+%1").arg(count);
-    const qreal w = QFontMetricsF(bold).horizontalAdvance(text) + 14;
-    const QRectF pill(bottomCenter.x() - w / 2, bottomCenter.y() - kBadgeHeight, w, kBadgeHeight);
+    const QSizeF size(fm.horizontalAdvance(text), fm.height());
+
+    QRectF box(QPointF(), size);
+    if (bar.width() >= size.width() + 4 && bar.height() >= size.height() + 4) {
+        box.moveCenter(bar.center());
+    } else {
+        box.moveCenter(QPointF(bar.center().x(), 0));
+        box.moveBottom(aboveY);
+    }
 
     p.save();
-    p.setPen(QPen(color, 1));
-    QColor fill = color;
-    fill.setAlpha(60);
-    p.setBrush(fill);
-    p.drawRoundedRect(pill, kBadgeHeight / 2, kBadgeHeight / 2);
     p.setFont(bold);
-    p.setPen(palette().color(QPalette::WindowText));
-    p.drawText(pill, Qt::AlignCenter, text);
+    p.setPen(Qt::white);
+    p.drawText(box, Qt::AlignCenter, text);
     p.restore();
 }
 
@@ -450,7 +450,7 @@ void ChartWidget::drawTotals(QPainter& p, const QRectF& plot) const {
                    Qt::AlignHCenter | Qt::AlignBottom, formatDuration(value));
         p.drawText(QRectF(center - slot / 2, plot.bottom() + 8, slot, 20),
                    Qt::AlignHCenter | Qt::AlignTop, s.name);
-        drawTodoBadge(p, QPointF(center, bar.top() - 28), doneTodosFor(s.id, -1).size(), s.color);
+        drawTodoBadge(p, bar, bar.top() - 26, doneTodosFor(s.id, -1).size());
     }
 }
 
@@ -528,7 +528,7 @@ void ChartWidget::drawDaily(QPainter& p, const QRectF& plot) const {
     const qreal dayWidth = plot.width() / 7;
     const qreal barWidth = std::min(dayWidth * 0.55, 48.0);
 
-    // Top of each bar, above which the number of completed tasks is shown.
+    // Top of each bar, for the number of completed tasks.
     QList<qreal> tops;
     p.save();
     p.setClipRect(plot);
@@ -556,8 +556,9 @@ void ChartWidget::drawDaily(QPainter& p, const QRectF& plot) const {
     p.restore();
 
     for (int day = 0; day < tops.size(); ++day) {
-        drawTodoBadge(p, QPointF(plot.left() + dayWidth * (day + 0.5), tops[day] - 4),
-                      doneTodosFor(-1, day).size(), kMuted);
+        const qreal left = plot.left() + dayWidth * (day + 0.5) - barWidth / 2;
+        const QRectF bar(left, tops[day], barWidth, plot.bottom() - tops[day]);
+        drawTodoBadge(p, bar, tops[day] - 4, doneTodosFor(-1, day).size());
     }
 }
 

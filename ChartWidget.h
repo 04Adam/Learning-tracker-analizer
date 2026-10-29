@@ -50,7 +50,8 @@ private:
     // Tasks done while studying a subject (-1: all) on a given weekday (-1: the whole period).
     QList<const DoneTodo*> doneTodosFor(int subjectId, int day) const;
     QString doneTodosHtml(const QList<const DoneTodo*>& todos) const;
-    void drawTodoBadge(QPainter& p, const QPointF& bottomCenter, int count, const QColor& color) const;
+    // White "+N" in the middle of the bar, or above it (bottom at aboveY) when it does not fit.
+    void drawTodoBadge(QPainter& p, const QRectF& bar, qreal aboveY, int count) const;
 
     void drawLegend(QPainter& p) const;
     void drawValueAxis(QPainter& p, const QRectF& plot) const;

@@ -315,52 +315,24 @@ void deleteTodo(int id) {
         qWarning() << "Database saving error:" << q.lastError().text();
 }
 
-QList<DoneTodo> todosDoneWithSessions(qint64 from, qint64 to) {
+QList<DoneTodo> todosDoneBetween(qint64 from, qint64 to) {
     QList<DoneTodo> result;
-
-    // Also sessions just before the range: a task checked off after them must not be assigned
-    // to a later session just because those were not loaded.
-    struct Span { int subjectId; qint64 start; qint64 end; };
-    QList<Span> spans;
     QSqlQuery q;
-    q.prepare("SELECT subject_id, start_ts, end_ts FROM sessions "
-              "WHERE end_ts > start_ts AND end_ts > ? AND start_ts < ? ORDER BY start_ts");
-    q.addBindValue(from - kTodoAfterSession);
+    q.prepare("SELECT t.text, COALESCE(t.subject_id, "
+              "  (SELECT se.subject_id FROM sessions se "
+              "   WHERE se.start_ts <= t.done_ts AND se.end_ts > se.start_ts "
+              "   ORDER BY se.start_ts DESC LIMIT 1), -1), t.done_ts "
+              "FROM todos t "
+              "WHERE t.done_ts IS NOT NULL AND t.deleted_ts IS NULL AND t.done_ts >= ? AND t.done_ts < ? "
+              "ORDER BY t.done_ts");
+    q.addBindValue(std::max(from, kTodosCountFrom));
     q.addBindValue(to);
     if (!q.exec()) {
         qWarning() << "Database reading error:" << q.lastError().text();
         return result;
     }
     while (q.next())
-        spans.append({q.value(0).toInt(), q.value(1).toLongLong(), q.value(2).toLongLong()});
-    if (spans.isEmpty()) return result;
-
-    q.prepare("SELECT text, subject_id, done_ts FROM todos "
-              "WHERE done_ts IS NOT NULL AND deleted_ts IS NULL AND done_ts >= ? AND done_ts < ? "
-              "ORDER BY done_ts");
-    q.addBindValue(std::max(spans.first().start, kTodosCountFrom));
-    q.addBindValue(to + kTodoAfterSession);
-    if (!q.exec()) {
-        qWarning() << "Database reading error:" << q.lastError().text();
-        return result;
-    }
-    while (q.next()) {
-        const int subject = q.value(1).isNull() ? -1 : q.value(1).toInt();
-        const qint64 done = q.value(2).toLongLong();
-
-        // The latest-started matching session, i.e. the one during or after which the task was checked off.
-        const Span* match = nullptr;
-        for (const Span& s : spans) {
-            if (s.start > done) break;
-            if (done <= s.end + kTodoAfterSession && (subject == -1 || s.subjectId == subject))
-                match = &s;
-        }
-        if (!match || match->end <= from) continue;
-
-        const qint64 at = std::clamp(done, std::max(match->start, from),
-                                     std::min(match->end, to) - 1);
-        result.append({q.value(0).toString(), match->subjectId, done, at});
-    }
+        result.append({q.value(0).toString(), q.value(1).toInt(), q.value(2).toLongLong()});
     return result;
 }
 
